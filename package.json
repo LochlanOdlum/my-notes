@@ -1,0 +1,19 @@
+{
+  "name": "my-notes",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "infra",
+    "web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "cdk": "npm run cdk --workspace infra --",
+    "dev": "npm run dev --workspace web",
+    "lint": "npm run lint --workspace web",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "infra",
+  "version": "0.1.0",
+  "bin": {
+    "infra": "bin/infra.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "tsx --test test/*.test.ts",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "aws-cdk": "2.1133.0",
+    "tsx": "^4.23.0",
+    "typescript": "~7.0.2"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.262.1",
+    "constructs": "^10.0.0"
+  }
+}
