@@ -1,0 +1,5 @@
+FROM ghcr.io/cargo-lambda/cargo-lambda:1.9.1
+
+# CDK supplies the bundling command. The upstream image's entrypoint would
+# otherwise interpret that command as Cargo Lambda arguments.
+ENTRYPOINT []

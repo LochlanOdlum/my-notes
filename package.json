@@ -7,6 +7,7 @@
     "web"
   ],
   "scripts": {
+    "backend:test": "cargo test --manifest-path backend/Cargo.toml",
     "build": "npm run build --workspaces --if-present",
     "cdk": "npm run cdk --workspace infra --",
     "dev": "npm run dev --workspace web",

@@ -4,6 +4,7 @@ dist/
 coverage/
 
 cdk.out/
+backend/target/
 
 .DS_Store
 *.log
