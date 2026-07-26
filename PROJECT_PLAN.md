@@ -89,7 +89,24 @@ These assumptions deliberately favor simple object storage over a database.
 - Tiptap for structured rich-text editing and read-only rendering.
 - Cognito authorization-code authentication with PKCE.
 
-### 4.2 AWS services
+### 4.2 Management API backend
+
+- Rust, built as a release binary for Linux ARM64.
+- Axum for HTTP routing, adapted to Lambda through `lambda_http`.
+- `serde` for request and document deserialization, `thiserror` for domain
+  errors, `tracing` for structured logs, and the AWS SDK for Rust for S3.
+- One `notes-admin` function for all authenticated management routes.
+- Lambda's `provided.al2023` runtime, packaged as a zip artifact rather than a
+  container image.
+- API Gateway HTTP API payload format 2.0.
+- The public reader does not invoke this function; it reads published objects
+  through CloudFront.
+
+The implementation should keep Axum handlers thin. Folder operations, draft
+saves, publishing, and S3 access remain Rust services that can be unit-tested
+without HTTP or Lambda event fixtures.
+
+### 4.3 AWS services
 
 - **S3:** source of truth for manifests, note documents, revisions, and
   attachments.
@@ -101,7 +118,7 @@ These assumptions deliberately favor simple object storage over a database.
 - **CloudWatch:** short-retention operational logs.
 - **AWS Budgets:** low-cost alert, initially set to USD 1 per month.
 
-### 4.3 Infrastructure as code
+### 4.4 Infrastructure as code
 
 - AWS CDK with TypeScript.
 - One initial environment-agnostic stack.
@@ -121,6 +138,10 @@ my-notes/
 ├── web/                   # React application
 │   ├── public/
 │   └── src/
+├── backend/                # Rust workspace for the management API
+│   ├── Cargo.toml
+│   └── crates/
+│       └── notes-admin/
 ├── package.json           # npm workspace commands
 ├── package-lock.json
 ├── .nvmrc                 # Node.js 24
@@ -130,9 +151,16 @@ my-notes/
 Likely additions during implementation:
 
 ```text
+backend/
+├── Cargo.toml
+└── crates/
+    └── notes-admin/
+        └── src/
+
+contracts/                  # JSON Schema / OpenAPI API contracts
+
 infra/
-├── functions/             # Lambda handlers
-├── lib/constructs/        # Focused CDK constructs
+├── lib/constructs/         # Focused CDK constructs
 └── test/
 
 web/src/
@@ -145,8 +173,10 @@ web/src/
 └── styles/
 ```
 
-Shared contracts can initially live in a small `shared` workspace if both the
-browser and Lambda require the same runtime schemas.
+Contracts must be language-neutral because the browser is TypeScript and the
+management API is Rust. JSON Schema or OpenAPI definitions in `contracts/`
+will describe requests and responses. Rust remains authoritative for server-side
+validation; TypeScript consumes generated or checked types for the browser.
 
 ## 6. S3 content model
 
@@ -459,7 +489,10 @@ Work:
 - Configure local and GitHub Pages callback/logout URLs.
 - Add API Gateway HTTP API.
 - Add JWT authorization to all management routes.
-- Add the first Lambda handler.
+- Create the Rust workspace and the `notes-admin` Lambda.
+- Build the Lambda through `cargo-lambda` as a release ARM64 artifact for
+  `provided.al2023`.
+- Add the first Axum route through the Lambda HTTP adapter.
 - Implement authenticated tree and note reads.
 - Implement a simple health or identity endpoint.
 - Integrate sign-in, sign-out, session restoration, and expired-session handling
@@ -573,6 +606,8 @@ Exit criteria:
 
 ### 12.2 Lambda and content operations
 
+- Rust unit tests for domain services, manifest parsing, and error mapping.
+- Lambda HTTP adapter tests for API Gateway payload format 2.0.
 - Runtime schema-validation tests.
 - Conditional-write conflict tests.
 - Publish-ordering and partial-failure tests.
@@ -627,6 +662,25 @@ Specific controls:
 - Short log retention.
 - Lifecycle cleanup for abandoned uploads.
 - AWS Budget notifications.
+
+## 14.1 Rust Lambda build and cold-start policy
+
+- Build a release ARM64 binary with `cargo-lambda`; do not compile Rust in the
+  deployed Lambda environment.
+- Use the `provided.al2023` runtime and a zip deployment package, not a
+  container image.
+- Enable release optimizations, link-time optimization, and symbol stripping.
+- Keep one management Lambda instead of several lightly used functions.
+- Initialize the S3 client once per execution environment and reuse it across
+  warm invocations.
+- Avoid provisioned concurrency in the MVP because its standing cost is not
+  justified by low traffic.
+- Keep dependencies and middleware intentionally small; public page reads stay
+  on CloudFront and do not incur Lambda initialization.
+
+Cold-start latency will be measured after the first deployed vertical slice.
+Rust is a deliberate engineering choice and should remain only if the measured
+experience and development workflow are satisfactory.
 
 ## 15. Risks and mitigations
 
@@ -719,4 +773,3 @@ The MVP is complete when:
 3. Add the versioned private S3 bucket and CloudFront distribution in CDK.
 4. Connect the reader to a seeded public manifest through CloudFront.
 5. Add Cognito, API Gateway, and the first authenticated Lambda operation.
-

@@ -1,0 +1,21 @@
+name: Inspect GitHub OIDC claims
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: aws-production
+
+    steps:
+      - name: Print the AWS OIDC trust claims
+        shell: bash
+        run: |
+          oidc_token="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq --raw-output .value)"
+          OIDC_TOKEN="$oidc_token" node -e 'const claims = JSON.parse(Buffer.from(process.env.OIDC_TOKEN.split(".")[1], "base64url").toString()); console.log(JSON.stringify({ aud: claims.aud, sub: claims.sub, repository: claims.repository, repository_id: claims.repository_id, repository_owner: claims.repository_owner, repository_owner_id: claims.repository_owner_id, ref: claims.ref, environment: claims.environment }, null, 2));'
