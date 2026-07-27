@@ -19,3 +19,21 @@ test('defines an ARM64 custom-runtime Lambda', () => {
     Timeout: 10,
   });
 });
+
+test('routes the health endpoint through an HTTP API', () => {
+  const app = new cdk.App();
+  const stack = new InfraStack(app, 'TestStack');
+  const template = Template.fromStack(stack);
+
+  template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+    Name: 'my-notes-admin',
+    ProtocolType: 'HTTP',
+  });
+  template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+    RouteKey: 'GET /health',
+  });
+  template.hasResourceProperties('AWS::Lambda::Permission', {
+    Action: 'lambda:InvokeFunction',
+    Principal: 'apigateway.amazonaws.com',
+  });
+});
