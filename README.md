@@ -55,6 +55,23 @@ npm run cdk -- deploy -c adminAuthEnabled=true
 This flag must be set explicitly for any shared or production deployment. The
 User Pool remains deployed while authentication is disabled.
 
+## Content storage and delivery
+
+The stack creates one private, versioned `ContentBucket` as the source of
+truth. It stores drafts under `private/` and public reading content under
+`published/`; all S3 public access is blocked. The admin Lambda has read/write
+access for future publishing operations.
+
+The `PublishedContentUrl` stack output is a CloudFront URL. The frontend fetches
+the public manifest, note revisions, and assets from this URL, for example
+`<PublishedContentUrl>/tree.json`. CloudFront can read only the `published/`
+prefix; it cannot read `private/`. Published reads are static, cached, and do
+not invoke the API or Lambda.
+
+Future publishing writes immutable revision objects first, then updates
+`published/tree.json` last. Set short cache headers on the manifest and long
+cache headers on immutable revisions and assets.
+
 After deployment, create the initial owner account (using the `AdminUserPoolId`
 stack output), set a permanent password, and grant it the admin group:
 

@@ -1,5 +1,5 @@
 import * as cdk from 'aws-cdk-lib/core';
-import { Template } from 'aws-cdk-lib/assertions';
+import { Match, Template } from 'aws-cdk-lib/assertions';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { InfraStack } from '../lib/infra-stack';
@@ -22,6 +22,50 @@ test('defines an ARM64 custom-runtime Lambda', () => {
     },
     Runtime: 'provided.al2023',
     Timeout: 10,
+  });
+});
+
+test('stores content privately and exposes only published content through CloudFront', () => {
+  const app = new cdk.App();
+  const stack = new InfraStack(app, 'TestStack');
+  const template = Template.fromStack(stack);
+
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    BucketEncryption: {
+      ServerSideEncryptionConfiguration: [
+        { ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } },
+      ],
+    },
+    PublicAccessBlockConfiguration: {
+      BlockPublicAcls: true,
+      BlockPublicPolicy: true,
+      IgnorePublicAcls: true,
+      RestrictPublicBuckets: true,
+    },
+    VersioningConfiguration: { Status: 'Enabled' },
+  });
+  template.resourceCountIs('AWS::CloudFront::Distribution', 1);
+  template.resourceCountIs('AWS::CloudFront::OriginAccessControl', 1);
+  template.hasResourceProperties('AWS::S3::BucketPolicy', {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Effect: 'Deny',
+          NotResource: Match.anyValue(),
+          Sid: 'DenyCloudFrontReadsOutsidePublishedPrefix',
+        }),
+      ]),
+    },
+  });
+  template.hasResourceProperties('AWS::IAM::Policy', {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: Match.arrayWith(['s3:GetObject*', 's3:PutObject']),
+          Effect: 'Allow',
+        }),
+      ]),
+    },
   });
 });
 

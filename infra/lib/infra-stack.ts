@@ -2,8 +2,12 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as apigatewayv2Authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as cloudfrontOrigins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import * as path from 'node:path';
 
@@ -47,6 +51,69 @@ export class InfraStack extends cdk.Stack {
         ADMIN_AUTH_ENABLED: String(adminAuthEnabled),
       },
     });
+
+    const contentBucket = new s3.Bucket(this, 'ContentBucket', {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      lifecycleRules: [
+        { abortIncompleteMultipartUploadAfter: cdk.Duration.days(7) },
+      ],
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      versioned: true,
+    });
+
+    contentBucket.grantReadWrite(notesAdminFunction);
+    notesAdminFunction.addEnvironment('CONTENT_BUCKET_NAME', contentBucket.bucketName);
+
+    const publishedContentCachePolicy = new cloudfront.CachePolicy(
+      this,
+      'PublishedContentCachePolicy',
+      {
+        defaultTtl: cdk.Duration.days(1),
+        enableAcceptEncodingBrotli: true,
+        enableAcceptEncodingGzip: true,
+        maxTtl: cdk.Duration.days(365),
+        minTtl: cdk.Duration.seconds(0),
+      },
+    );
+
+    const publishedContentDistribution = new cloudfront.Distribution(
+      this,
+      'PublishedContentDistribution',
+      {
+        defaultBehavior: {
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+          cachePolicy: publishedContentCachePolicy,
+          origin: cloudfrontOrigins.S3BucketOrigin.withOriginAccessControl(
+            contentBucket,
+            { originPath: '/published' },
+          ),
+          responseHeadersPolicy:
+            cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+          viewerProtocolPolicy:
+            cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        },
+        priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      },
+    );
+
+    // S3BucketOrigin grants the distribution access to the bucket. This explicit
+    // deny narrows that grant to the published prefix, keeping drafts private.
+    contentBucket.addToResourcePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        conditions: {
+          StringEquals: {
+            'AWS:SourceArn': `arn:${cdk.Aws.PARTITION}:cloudfront::${cdk.Aws.ACCOUNT_ID}:distribution/${publishedContentDistribution.distributionId}`,
+          },
+        },
+        effect: iam.Effect.DENY,
+        notResources: [contentBucket.arnForObjects('published/*')],
+        principals: [new iam.ServicePrincipal('cloudfront.amazonaws.com')],
+        sid: 'DenyCloudFrontReadsOutsidePublishedPrefix',
+      }),
+    );
 
     const notesAdminApi = new apigatewayv2.HttpApi(this, 'NotesAdminApi', {
       apiName: 'my-notes-admin',
@@ -134,6 +201,14 @@ export class InfraStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'NotesAdminApiUrl', {
       value: notesAdminApi.apiEndpoint,
+    });
+
+    new cdk.CfnOutput(this, 'ContentBucketName', {
+      value: contentBucket.bucketName,
+    });
+
+    new cdk.CfnOutput(this, 'PublishedContentUrl', {
+      value: `https://${publishedContentDistribution.distributionDomainName}`,
     });
 
     new cdk.CfnOutput(this, 'AdminUserPoolId', {
