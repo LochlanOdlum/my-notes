@@ -43,7 +43,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_operations_without_an_api_gateway_identity_are_forbidden() {
+    async fn admin_operations_are_available_while_authentication_is_disabled() {
         let response = app()
             .oneshot(
                 Request::builder()
@@ -54,13 +54,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         assert_eq!(
             body.as_ref(),
-            br#"{"error":{"code":"forbidden","message":"You do not have permission to perform this admin operation."}}"#
+            br#"{"error":{"code":"not_implemented","message":"This admin operation is not implemented yet."}}"#
         );
     }
 }

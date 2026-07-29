@@ -45,6 +45,16 @@ callback is `http://localhost:5173/auth/callback`; add the final GitHub Pages
 HTTPS callback URL before deploying the admin frontend. Admin routes currently
 return a JSON `501` response while content persistence is built.
 
+Authentication is disabled by default until the admin frontend is ready. Enable
+both API Gateway JWT validation and the Lambda's `admins` group check with:
+
+```sh
+npm run cdk -- deploy -c adminAuthEnabled=true
+```
+
+This flag must be set explicitly for any shared or production deployment. The
+User Pool remains deployed while authentication is disabled.
+
 After deployment, create the initial owner account (using the `AdminUserPoolId`
 stack output), set a permanent password, and grant it the admin group:
 

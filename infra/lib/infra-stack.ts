@@ -11,6 +11,12 @@ export class InfraStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    // Keep authentication off until the admin frontend is ready. Opt in with
+    // CDK context `adminAuthEnabled=true` before a shared deployment.
+    const adminAuthEnabled = String(
+      this.node.tryGetContext('adminAuthEnabled'),
+    ) === 'true';
+
     const backendPath = path.join(__dirname, '../../backend');
     const lambdaBuilder = cdk.DockerImage.fromBuild(backendPath, {
       file: 'Dockerfile.lambda-builder',
@@ -37,6 +43,9 @@ export class InfraStack extends cdk.Stack {
       memorySize: 512,
       runtime: lambda.Runtime.PROVIDED_AL2023,
       timeout: cdk.Duration.seconds(10),
+      environment: {
+        ADMIN_AUTH_ENABLED: String(adminAuthEnabled),
+      },
     });
 
     const notesAdminApi = new apigatewayv2.HttpApi(this, 'NotesAdminApi', {
@@ -102,14 +111,14 @@ export class InfraStack extends cdk.Stack {
       path: '/admin',
       methods: [apigatewayv2.HttpMethod.ANY],
       integration: adminIntegration,
-      authorizer: adminAuthorizer,
+      authorizer: adminAuthEnabled ? adminAuthorizer : undefined,
     });
 
     notesAdminApi.addRoutes({
       path: '/admin/{proxy+}',
       methods: [apigatewayv2.HttpMethod.ANY],
       integration: adminIntegration,
-      authorizer: adminAuthorizer,
+      authorizer: adminAuthEnabled ? adminAuthorizer : undefined,
     });
 
     // Keep this construct ID aligned with HttpApi's former implicit default
@@ -143,6 +152,10 @@ export class InfraStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'AdminUserPoolIssuerUrl', {
       value: adminUserPool.userPoolProviderUrl,
+    });
+
+    new cdk.CfnOutput(this, 'AdminAuthEnabled', {
+      value: String(adminAuthEnabled),
     });
   }
 }

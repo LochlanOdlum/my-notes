@@ -15,13 +15,18 @@ test('defines an ARM64 custom-runtime Lambda', () => {
     Architectures: ['arm64'],
     Handler: 'bootstrap',
     MemorySize: 512,
+    Environment: {
+      Variables: {
+        ADMIN_AUTH_ENABLED: 'false',
+      },
+    },
     Runtime: 'provided.al2023',
     Timeout: 10,
   });
 });
 
 test('routes health publicly and requires Cognito authentication for admin paths', () => {
-  const app = new cdk.App();
+  const app = new cdk.App({ context: { adminAuthEnabled: true } });
   const stack = new InfraStack(app, 'TestStack');
   const template = Template.fromStack(stack);
 

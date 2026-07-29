@@ -8,11 +8,19 @@ pub fn router() -> Router {
 }
 
 async fn not_implemented(request: Request) -> Result<ApiError, ApiError> {
-    if !is_admin(&request) {
+    if auth_is_enabled() && !is_admin(&request) {
         return Err(ApiError::Forbidden);
     }
 
     Ok(ApiError::NotImplemented)
+}
+
+fn auth_is_enabled() -> bool {
+    auth_is_enabled_from(std::env::var("ADMIN_AUTH_ENABLED").ok().as_deref())
+}
+
+fn auth_is_enabled_from(value: Option<&str>) -> bool {
+    value == Some("true")
 }
 
 fn is_admin(request: &Request) -> bool {
@@ -36,12 +44,19 @@ fn is_member_of_admin_group(groups: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_member_of_admin_group;
+    use super::{auth_is_enabled_from, is_member_of_admin_group};
 
     #[test]
     fn recognises_the_admins_cognito_group() {
         assert!(is_member_of_admin_group("[admins]"));
         assert!(is_member_of_admin_group("[\"editors\", \"admins\"]"));
         assert!(!is_member_of_admin_group("[editors]"));
+    }
+
+    #[test]
+    fn authentication_is_disabled_unless_explicitly_enabled() {
+        assert!(!auth_is_enabled_from(None));
+        assert!(auth_is_enabled_from(Some("true")));
+        assert!(!auth_is_enabled_from(Some("false")));
     }
 }
