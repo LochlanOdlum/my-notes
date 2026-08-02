@@ -1,18 +1,82 @@
-use axum::{Router, extract::Request};
+use std::sync::Arc;
+
+use axum::{
+    Json, Router,
+    extract::{Request, State},
+    http::StatusCode,
+    routing::post,
+};
 use lambda_http::RequestExt;
+use serde::{Deserialize, Serialize};
 
-use crate::error::ApiError;
+use crate::{
+    error::ApiError,
+    services::{TreeOperations, TreeServiceError},
+    tree::{CreateNote, NodeId},
+};
 
-pub fn router() -> Router {
-    Router::new().fallback(not_implemented)
+pub fn router(tree_operations: Arc<dyn TreeOperations>) -> Router {
+    Router::new()
+        .route("/notes", post(create_note))
+        .fallback(not_implemented)
+        .with_state(tree_operations)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateNoteRequest {
+    parent_id: Option<NodeId>,
+    title: String,
+    slug: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateNoteResponse {
+    id: NodeId,
+}
+
+async fn create_note(
+    State(tree_operations): State<Arc<dyn TreeOperations>>,
+    request: Request,
+) -> Result<(StatusCode, Json<CreateNoteResponse>), ApiError> {
+    authorize(&request)?;
+    let body = axum::body::to_bytes(request.into_body(), 64 * 1024)
+        .await
+        .map_err(|_| ApiError::BadRequest("request body is too large".to_owned()))?;
+    let input: CreateNoteRequest = serde_json::from_slice(&body)
+        .map_err(|_| ApiError::BadRequest("request body must be valid JSON".to_owned()))?;
+    let id = tree_operations
+        .create_note(CreateNote {
+            parent_id: input.parent_id,
+            title: input.title,
+            slug: input.slug,
+        })
+        .await
+        .map_err(map_tree_error)?;
+
+    Ok((StatusCode::CREATED, Json(CreateNoteResponse { id })))
 }
 
 async fn not_implemented(request: Request) -> Result<ApiError, ApiError> {
-    if auth_is_enabled() && !is_admin(&request) {
-        return Err(ApiError::Forbidden);
-    }
+    authorize(&request)?;
 
     Ok(ApiError::NotImplemented)
+}
+
+fn authorize(request: &Request) -> Result<(), ApiError> {
+    if auth_is_enabled() && !is_admin(request) {
+        return Err(ApiError::Forbidden);
+    }
+    Ok(())
+}
+
+fn map_tree_error(error: TreeServiceError) -> ApiError {
+    match error {
+        TreeServiceError::Domain(error) => ApiError::BadRequest(error.to_string()),
+        TreeServiceError::Conflict => ApiError::Conflict,
+        TreeServiceError::Storage(_) | TreeServiceError::IdGeneratorPoisoned => ApiError::Internal,
+    }
 }
 
 fn auth_is_enabled() -> bool {

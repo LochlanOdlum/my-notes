@@ -11,8 +11,16 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import * as path from 'node:path';
 
+export interface InfraStackProps extends cdk.StackProps {
+  /**
+   * Test-only escape hatch for synthesizing infrastructure assertions without
+   * invoking the several-minute cross-compiled Lambda bundle.
+   */
+  readonly bundleLambda?: boolean;
+}
+
 export class InfraStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props?: InfraStackProps) {
     super(scope, id, props);
 
     // Keep authentication off until the admin frontend is ready. Opt in with
@@ -22,27 +30,33 @@ export class InfraStack extends cdk.Stack {
     ) === 'true';
 
     const backendPath = path.join(__dirname, '../../backend');
-    const lambdaBuilder = cdk.DockerImage.fromBuild(backendPath, {
-      file: 'Dockerfile.lambda-builder',
-    });
+    const lambdaCode =
+      props?.bundleLambda === false
+        // A custom runtime cannot use CloudFormation inline code. This asset is
+        // only synthesized in infrastructure-only tests; the real build path
+        // below remains covered by the Lambda packaging test.
+        ? lambda.Code.fromAsset(backendPath)
+        : lambda.Code.fromAsset(backendPath, {
+            bundling: {
+              command: [
+                'bash',
+                '-c',
+                [
+                  'export CARGO_TARGET_DIR=/tmp/cargo-target',
+                  'cargo lambda build --release --arm64 --bin notes-admin',
+                  'cp /tmp/cargo-target/lambda/notes-admin/bootstrap /asset-output/bootstrap',
+                ].join(' && '),
+              ],
+              image: cdk.DockerImage.fromBuild(backendPath, {
+                file: 'Dockerfile.lambda-builder',
+              }),
+              workingDirectory: '/asset-input',
+            },
+          });
 
     const notesAdminFunction = new lambda.Function(this, 'NotesAdminFunction', {
       architecture: lambda.Architecture.ARM_64,
-      code: lambda.Code.fromAsset(backendPath, {
-        bundling: {
-          command: [
-            'bash',
-            '-c',
-            [
-              'export CARGO_TARGET_DIR=/tmp/cargo-target',
-              'cargo lambda build --release --arm64 --bin notes-admin',
-              'cp /tmp/cargo-target/lambda/notes-admin/bootstrap /asset-output/bootstrap',
-            ].join(' && '),
-          ],
-          image: lambdaBuilder,
-          workingDirectory: '/asset-input',
-        },
-      }),
+      code: lambdaCode,
       handler: 'bootstrap',
       memorySize: 512,
       runtime: lambda.Runtime.PROVIDED_AL2023,

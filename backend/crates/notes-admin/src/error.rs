@@ -12,6 +12,12 @@ pub enum ApiError {
     Forbidden,
     #[error("This admin operation is not implemented yet.")]
     NotImplemented,
+    #[error("{0}")]
+    BadRequest(String),
+    #[error("The tree was updated by another request. Please retry.")]
+    Conflict,
+    #[error("The server could not save the requested change.")]
+    Internal,
 }
 
 #[derive(Serialize)]
@@ -30,6 +36,9 @@ impl IntoResponse for ApiError {
         let (status, code) = match self {
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
             Self::NotImplemented => (StatusCode::NOT_IMPLEMENTED, "not_implemented"),
+            Self::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
+            Self::Conflict => (StatusCode::CONFLICT, "conflict"),
+            Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         };
 
         (

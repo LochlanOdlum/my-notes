@@ -1,12 +1,11 @@
 use std::sync::Mutex;
 
+use async_trait::async_trait;
 use thiserror::Error;
 
 use crate::{
     storage::{StoreError, StoredManifest, TreeManifestStore, WriteCondition},
-    tree::{
-        Clock, CreateFolder, CreateNote, IdGenerator, NodeId, TreeError, TreeManifest,
-    },
+    tree::{Clock, CreateFolder, CreateNote, IdGenerator, NodeId, TreeError, TreeManifest},
 };
 
 #[derive(Clone, Debug)]
@@ -31,6 +30,11 @@ pub struct TreeService<S, I, C> {
     clock: C,
     ids: Mutex<I>,
     store: S,
+}
+
+#[async_trait]
+pub trait TreeOperations: Send + Sync {
+    async fn create_note(&self, input: CreateNote) -> Result<NodeId, TreeServiceError>;
 }
 
 impl<S, I, C> TreeService<S, I, C>
@@ -108,15 +112,19 @@ where
             .as_ref()
             .map(|stored| WriteCondition::IfMatch(stored.etag.clone()))
             .unwrap_or(WriteCondition::IfAbsent);
-        let mut ids = self
-            .ids
-            .lock()
-            .map_err(|_| TreeServiceError::IdGeneratorPoisoned)?;
-        let mut manifest = existing
-            .map(|stored| stored.manifest)
-            .unwrap_or_else(|| TreeManifest::new(&mut *ids, &self.clock));
-        let value = operation(&mut manifest, &mut *ids, &self.clock)?;
-        drop(ids);
+        // IDs are generated synchronously; release this non-Send lock before
+        // the asynchronous conditional S3 write below.
+        let (value, manifest) = {
+            let mut ids = self
+                .ids
+                .lock()
+                .map_err(|_| TreeServiceError::IdGeneratorPoisoned)?;
+            let mut manifest = existing
+                .map(|stored| stored.manifest)
+                .unwrap_or_else(|| TreeManifest::new(&mut *ids, &self.clock));
+            let value = operation(&mut manifest, &mut *ids, &self.clock)?;
+            (value, manifest)
+        };
 
         let stored_manifest = self
             .store
@@ -127,6 +135,20 @@ where
             value,
             stored_manifest,
         })
+    }
+}
+
+#[async_trait]
+impl<S, I, C> TreeOperations for TreeService<S, I, C>
+where
+    S: TreeManifestStore,
+    I: IdGenerator + Send,
+    C: Clock + Send + Sync,
+{
+    async fn create_note(&self, input: CreateNote) -> Result<NodeId, TreeServiceError> {
+        TreeService::create_note(self, input)
+            .await
+            .map(|result| result.value)
     }
 }
 
@@ -144,7 +166,7 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
-    use crate::storage::StoreError;
+    use crate::{storage::StoreError, tree::TreeNode};
 
     struct FixedIds {
         values: Vec<String>,

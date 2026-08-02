@@ -27,7 +27,7 @@ test('defines an ARM64 custom-runtime Lambda', { concurrency: false }, () => {
 
 test('stores content privately and exposes only published content through CloudFront', { concurrency: false }, () => {
   const app = new cdk.App();
-  const stack = new InfraStack(app, 'TestStack');
+  const stack = new InfraStack(app, 'TestStack', { bundleLambda: false });
   const template = Template.fromStack(stack);
 
   template.hasResourceProperties('AWS::S3::Bucket', {
@@ -71,7 +71,7 @@ test('stores content privately and exposes only published content through CloudF
 
 test('routes health publicly and requires Cognito authentication for admin paths', { concurrency: false }, () => {
   const app = new cdk.App({ context: { adminAuthEnabled: true } });
-  const stack = new InfraStack(app, 'TestStack');
+  const stack = new InfraStack(app, 'TestStack', { bundleLambda: false });
   const template = Template.fromStack(stack);
 
   template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
