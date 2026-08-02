@@ -80,6 +80,8 @@ pub struct NoteNode {
     pub slug: String,
     pub position: i64,
     pub status: NoteStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published_revision: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -88,6 +90,7 @@ pub struct NoteNode {
 #[serde(rename_all = "lowercase")]
 pub enum NoteStatus {
     Draft,
+    Published,
 }
 
 #[derive(Clone, Debug)]
@@ -239,6 +242,7 @@ impl TreeManifest {
             slug: input.slug,
             position,
             status: NoteStatus::Draft,
+            published_revision: None,
             created_at: now.clone(),
             updated_at: now,
         }));
@@ -259,6 +263,58 @@ impl TreeManifest {
         *self.node_mut(node_id)?.common_mut().updated_at = now;
         self.record_mutation(ids, clock);
         Ok(())
+    }
+
+    pub fn publish_note(
+        &mut self,
+        node_id: &NodeId,
+        published_revision: String,
+        ids: &mut impl IdGenerator,
+        clock: &impl Clock,
+    ) -> Result<(), TreeError> {
+        let now = clock.now();
+        let TreeNode::Note(note) = self.node_mut(node_id)? else {
+            return Err(TreeError::NodeNotFound(node_id.0.clone()));
+        };
+        note.status = NoteStatus::Published;
+        note.published_revision = Some(published_revision);
+        note.updated_at = now;
+        self.record_mutation(ids, clock);
+        Ok(())
+    }
+
+    pub fn contains_note(&self, node_id: &NodeId) -> bool {
+        matches!(self.node(node_id), Ok(TreeNode::Note(_)))
+    }
+
+    pub fn published_view(&self) -> Self {
+        let mut included = HashSet::new();
+        for node in &self.nodes {
+            if let TreeNode::Note(note) = node
+                && note.status == NoteStatus::Published
+            {
+                included.insert(note.id.clone());
+                let mut parent_id = note.parent_id.clone();
+                while let Some(parent) = parent_id {
+                    included.insert(parent.clone());
+                    parent_id = self
+                        .node(&parent)
+                        .ok()
+                        .and_then(|node| node.common().parent_id.clone());
+                }
+            }
+        }
+        Self {
+            schema_version: self.schema_version,
+            revision: self.revision.clone(),
+            updated_at: self.updated_at.clone(),
+            nodes: self
+                .nodes
+                .iter()
+                .filter(|node| included.contains(node.common().id))
+                .cloned()
+                .collect(),
+        }
     }
 
     /// Moves a node and places it immediately after `after_sibling_id`, or at

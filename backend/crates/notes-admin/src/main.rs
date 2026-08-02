@@ -1,5 +1,6 @@
 mod api;
 mod error;
+pub mod note;
 pub mod services;
 pub mod storage;
 pub mod tree;
@@ -7,9 +8,8 @@ pub mod tree;
 use lambda_http::{Error, run};
 use std::sync::Arc;
 
-use services::TreeService;
+use services::NotesService;
 use storage::S3TreeManifestStore;
-use tree::{UlidGenerator, UtcClock};
 
 pub fn app(tree_operations: Arc<dyn services::TreeOperations>) -> axum::Router {
     api::router(tree_operations)
@@ -19,7 +19,7 @@ pub fn app(tree_operations: Arc<dyn services::TreeOperations>) -> axum::Router {
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt().json().init();
     let store = S3TreeManifestStore::from_environment().await?;
-    let tree_operations = Arc::new(TreeService::new(store, UlidGenerator, UtcClock));
+    let tree_operations = Arc::new(NotesService::new(store));
     run(app(tree_operations)).await
 }
 
@@ -36,7 +36,9 @@ mod tests {
 
     use super::{
         app,
-        services::{TreeOperations, TreeServiceError},
+        note::NoteDocument,
+        services::{PublishedNote, TreeOperations, TreeServiceError},
+        storage::StoredNoteDocument,
         tree::{CreateNote, NodeId},
     };
 
@@ -46,6 +48,45 @@ mod tests {
     impl TreeOperations for TestTreeOperations {
         async fn create_note(&self, _input: CreateNote) -> Result<NodeId, TreeServiceError> {
             Ok(NodeId::from("note-123"))
+        }
+
+        async fn load_note(&self, note_id: NodeId) -> Result<StoredNoteDocument, TreeServiceError> {
+            Ok(StoredNoteDocument {
+                document: NoteDocument::empty(
+                    note_id,
+                    "draft-revision".to_owned(),
+                    "2026-08-03T12:00:00Z".to_owned(),
+                ),
+                etag: "etag-1".to_owned(),
+            })
+        }
+
+        async fn save_note(
+            &self,
+            note_id: NodeId,
+            document: serde_json::Value,
+            _etag: String,
+        ) -> Result<StoredNoteDocument, TreeServiceError> {
+            Ok(StoredNoteDocument {
+                document: NoteDocument::empty(
+                    note_id,
+                    "draft-revision-2".to_owned(),
+                    "2026-08-03T12:00:01Z".to_owned(),
+                )
+                .with_document(
+                    document,
+                    "draft-revision-2".to_owned(),
+                    "2026-08-03T12:00:01Z".to_owned(),
+                ),
+                etag: "etag-2".to_owned(),
+            })
+        }
+
+        async fn publish_note(&self, note_id: NodeId) -> Result<PublishedNote, TreeServiceError> {
+            Ok(PublishedNote {
+                revision: "published-revision".to_owned(),
+                public_path: format!("notes/{}/published-revision.json", note_id.0),
+            })
         }
     }
 
@@ -113,5 +154,56 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(body.as_ref(), br#"{"id":"note-123"}"#);
+    }
+
+    #[tokio::test]
+    async fn loads_saves_and_publishes_a_note_through_the_admin_api() {
+        let loaded = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/notes/note-123")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(loaded.status(), StatusCode::OK);
+        assert_eq!(loaded.headers().get("etag").unwrap(), "etag-1");
+
+        let saved = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/admin/notes/note-123/draft")
+                    .header("if-match", "etag-1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"document":{"type":"doc","content":[{"type":"paragraph"}]}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(saved.status(), StatusCode::OK);
+        assert_eq!(saved.headers().get("etag").unwrap(), "etag-2");
+
+        let published = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/admin/notes/note-123/publish")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(published.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(published.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            body.as_ref(),
+            br#"{"revision":"published-revision","publicPath":"notes/note-123/published-revision.json"}"#
+        );
     }
 }

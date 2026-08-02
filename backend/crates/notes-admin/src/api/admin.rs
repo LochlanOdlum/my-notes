@@ -2,22 +2,26 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Request, State},
-    http::StatusCode,
-    routing::post,
+    extract::{Path, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    routing::{get, post, put},
 };
 use lambda_http::RequestExt;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     error::ApiError,
-    services::{TreeOperations, TreeServiceError},
+    note::NoteDocument,
+    services::{PublishedNote, TreeOperations, TreeServiceError},
     tree::{CreateNote, NodeId},
 };
 
 pub fn router(tree_operations: Arc<dyn TreeOperations>) -> Router {
     Router::new()
         .route("/notes", post(create_note))
+        .route("/notes/{note_id}", get(get_note))
+        .route("/notes/{note_id}/draft", put(save_note))
+        .route("/notes/{note_id}/publish", post(publish_note))
         .fallback(not_implemented)
         .with_state(tree_operations)
 }
@@ -34,6 +38,18 @@ struct CreateNoteRequest {
 #[serde(rename_all = "camelCase")]
 struct CreateNoteResponse {
     id: NodeId,
+}
+
+#[derive(Deserialize)]
+struct SaveDraftRequest {
+    document: serde_json::Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublishNoteResponse {
+    revision: String,
+    public_path: String,
 }
 
 async fn create_note(
@@ -58,6 +74,69 @@ async fn create_note(
     Ok((StatusCode::CREATED, Json(CreateNoteResponse { id })))
 }
 
+async fn get_note(
+    State(tree_operations): State<Arc<dyn TreeOperations>>,
+    Path(note_id): Path<NodeId>,
+    request: Request,
+) -> Result<(HeaderMap, Json<NoteDocument>), ApiError> {
+    authorize(&request)?;
+    let stored = tree_operations
+        .load_note(note_id)
+        .await
+        .map_err(map_tree_error)?;
+    Ok((etag_header(&stored.etag)?, Json(stored.document)))
+}
+
+async fn save_note(
+    State(tree_operations): State<Arc<dyn TreeOperations>>,
+    Path(note_id): Path<NodeId>,
+    request: Request,
+) -> Result<(HeaderMap, Json<NoteDocument>), ApiError> {
+    authorize(&request)?;
+    let etag = request
+        .headers()
+        .get(header::IF_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .ok_or_else(|| ApiError::BadRequest("If-Match header is required".to_owned()))?;
+    let body = axum::body::to_bytes(request.into_body(), 1024 * 1024)
+        .await
+        .map_err(|_| ApiError::BadRequest("request body is too large".to_owned()))?;
+    let input: SaveDraftRequest = serde_json::from_slice(&body)
+        .map_err(|_| ApiError::BadRequest("request body must be valid JSON".to_owned()))?;
+    let stored = tree_operations
+        .save_note(note_id, input.document, etag)
+        .await
+        .map_err(map_tree_error)?;
+    Ok((etag_header(&stored.etag)?, Json(stored.document)))
+}
+
+async fn publish_note(
+    State(tree_operations): State<Arc<dyn TreeOperations>>,
+    Path(note_id): Path<NodeId>,
+    request: Request,
+) -> Result<Json<PublishNoteResponse>, ApiError> {
+    authorize(&request)?;
+    let PublishedNote {
+        revision,
+        public_path,
+    } = tree_operations
+        .publish_note(note_id)
+        .await
+        .map_err(map_tree_error)?;
+    Ok(Json(PublishNoteResponse {
+        revision,
+        public_path,
+    }))
+}
+
+fn etag_header(etag: &str) -> Result<HeaderMap, ApiError> {
+    let mut headers = HeaderMap::new();
+    let value = HeaderValue::from_str(etag).map_err(|_| ApiError::Internal)?;
+    headers.insert(header::ETAG, value);
+    Ok(headers)
+}
+
 async fn not_implemented(request: Request) -> Result<ApiError, ApiError> {
     authorize(&request)?;
 
@@ -74,6 +153,7 @@ fn authorize(request: &Request) -> Result<(), ApiError> {
 fn map_tree_error(error: TreeServiceError) -> ApiError {
     match error {
         TreeServiceError::Domain(error) => ApiError::BadRequest(error.to_string()),
+        TreeServiceError::InvalidDocument(error) => ApiError::BadRequest(error),
         TreeServiceError::Conflict => ApiError::Conflict,
         TreeServiceError::Storage(_) | TreeServiceError::IdGeneratorPoisoned => ApiError::Internal,
     }

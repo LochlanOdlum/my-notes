@@ -4,8 +4,15 @@ use async_trait::async_trait;
 use thiserror::Error;
 
 use crate::{
-    storage::{StoreError, StoredManifest, TreeManifestStore, WriteCondition},
-    tree::{Clock, CreateFolder, CreateNote, IdGenerator, NodeId, TreeError, TreeManifest},
+    note::NoteDocument,
+    storage::{
+        S3TreeManifestStore, StoreError, StoredManifest, StoredNoteDocument, TreeManifestStore,
+        WriteCondition,
+    },
+    tree::{
+        Clock, CreateFolder, CreateNote, IdGenerator, NodeId, TreeError, TreeManifest,
+        UlidGenerator, UtcClock,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -20,6 +27,8 @@ pub enum TreeServiceError {
     Conflict,
     #[error(transparent)]
     Domain(#[from] TreeError),
+    #[error("{0}")]
+    InvalidDocument(String),
     #[error(transparent)]
     Storage(#[from] StoreError),
     #[error("the tree ID generator lock was poisoned")]
@@ -35,6 +44,63 @@ pub struct TreeService<S, I, C> {
 #[async_trait]
 pub trait TreeOperations: Send + Sync {
     async fn create_note(&self, input: CreateNote) -> Result<NodeId, TreeServiceError>;
+    async fn load_note(&self, note_id: NodeId) -> Result<StoredNoteDocument, TreeServiceError>;
+    async fn save_note(
+        &self,
+        note_id: NodeId,
+        document: serde_json::Value,
+        etag: String,
+    ) -> Result<StoredNoteDocument, TreeServiceError>;
+    async fn publish_note(&self, note_id: NodeId) -> Result<PublishedNote, TreeServiceError>;
+}
+
+#[derive(Clone, Debug)]
+pub struct PublishedNote {
+    pub revision: String,
+    pub public_path: String,
+}
+
+pub struct NotesService {
+    tree: TreeService<S3TreeManifestStore, UlidGenerator, UtcClock>,
+    store: S3TreeManifestStore,
+    ids: Mutex<UlidGenerator>,
+    clock: UtcClock,
+}
+
+impl NotesService {
+    pub fn new(store: S3TreeManifestStore) -> Self {
+        Self {
+            tree: TreeService::new(store.clone(), UlidGenerator, UtcClock),
+            store,
+            ids: Mutex::new(UlidGenerator),
+            clock: UtcClock,
+        }
+    }
+
+    fn next_id(&self) -> Result<String, TreeServiceError> {
+        self.ids
+            .lock()
+            .map(|mut ids| ids.next_id())
+            .map_err(|_| TreeServiceError::IdGeneratorPoisoned)
+    }
+
+    fn now(&self) -> String {
+        self.clock.now()
+    }
+
+    async fn ensure_note_exists(&self, note_id: &NodeId) -> Result<(), TreeServiceError> {
+        let tree =
+            self.tree.load().await?.ok_or_else(|| {
+                TreeServiceError::Domain(TreeError::NodeNotFound(note_id.0.clone()))
+            })?;
+        if tree.manifest.contains_note(note_id) {
+            Ok(())
+        } else {
+            Err(TreeServiceError::Domain(TreeError::NodeNotFound(
+                note_id.0.clone(),
+            )))
+        }
+    }
 }
 
 impl<S, I, C> TreeService<S, I, C>
@@ -69,6 +135,17 @@ where
     ) -> Result<MutationResult<NodeId>, TreeServiceError> {
         self.mutate(|manifest, ids, clock| manifest.create_note(input, ids, clock))
             .await
+    }
+
+    pub async fn publish_note(
+        &self,
+        node_id: NodeId,
+        published_revision: String,
+    ) -> Result<MutationResult<()>, TreeServiceError> {
+        self.mutate(|manifest, ids, clock| {
+            manifest.publish_note(&node_id, published_revision, ids, clock)
+        })
+        .await
     }
 
     pub async fn rename_node(
@@ -139,16 +216,93 @@ where
 }
 
 #[async_trait]
-impl<S, I, C> TreeOperations for TreeService<S, I, C>
-where
-    S: TreeManifestStore,
-    I: IdGenerator + Send,
-    C: Clock + Send + Sync,
-{
+impl TreeOperations for NotesService {
     async fn create_note(&self, input: CreateNote) -> Result<NodeId, TreeServiceError> {
-        TreeService::create_note(self, input)
+        let note_id = self.tree.create_note(input).await?.value;
+        let draft = NoteDocument::empty(note_id.clone(), self.next_id()?, self.now());
+        self.store
+            .save_draft(&draft, WriteCondition::IfAbsent)
             .await
-            .map(|result| result.value)
+            .map_err(map_store_error)?;
+        Ok(note_id)
+    }
+
+    async fn load_note(&self, note_id: NodeId) -> Result<StoredNoteDocument, TreeServiceError> {
+        self.ensure_note_exists(&note_id).await?;
+        self.store
+            .load_draft(&note_id.0)
+            .await
+            .map_err(map_store_error)?
+            .ok_or_else(|| {
+                TreeServiceError::Storage(StoreError::InvalidManifest(
+                    "note draft is missing".to_owned(),
+                ))
+            })
+    }
+
+    async fn save_note(
+        &self,
+        note_id: NodeId,
+        document: serde_json::Value,
+        etag: String,
+    ) -> Result<StoredNoteDocument, TreeServiceError> {
+        let existing = self.load_note(note_id.clone()).await?;
+        if existing.etag != etag {
+            return Err(TreeServiceError::Conflict);
+        }
+        let updated = existing
+            .document
+            .with_document(document, self.next_id()?, self.now());
+        updated
+            .validate()
+            .map_err(|error| TreeServiceError::InvalidDocument(error.to_string()))?;
+        self.store
+            .save_draft(&updated, WriteCondition::IfMatch(etag))
+            .await
+            .map_err(map_store_error)
+    }
+
+    async fn publish_note(&self, note_id: NodeId) -> Result<PublishedNote, TreeServiceError> {
+        let draft = self.load_note(note_id.clone()).await?;
+        let revision = self.next_id()?;
+        let published = draft.document.with_document(
+            draft.document.document.clone(),
+            revision.clone(),
+            self.now(),
+        );
+        self.store
+            .publish_note(&published)
+            .await
+            .map_err(map_store_error)?;
+
+        let private_tree =
+            self.tree.load().await?.ok_or_else(|| {
+                TreeServiceError::Domain(TreeError::NodeNotFound(note_id.0.clone()))
+            })?;
+        let mut next_tree = private_tree.manifest.clone();
+        next_tree.publish_note(&note_id, revision.clone(), &mut UlidGenerator, &self.clock)?;
+        let public_tree = next_tree.published_view();
+        let current_public = self
+            .store
+            .load_published_tree()
+            .await
+            .map_err(map_store_error)?;
+        let condition = current_public
+            .as_ref()
+            .map(|stored| WriteCondition::IfMatch(stored.etag.clone()))
+            .unwrap_or(WriteCondition::IfAbsent);
+        self.store
+            .save_published_tree(&public_tree, condition)
+            .await
+            .map_err(map_store_error)?;
+        self.tree
+            .publish_note(note_id.clone(), revision.clone())
+            .await?;
+
+        Ok(PublishedNote {
+            public_path: format!("notes/{}/{revision}.json", note_id.0),
+            revision,
+        })
     }
 }
 
