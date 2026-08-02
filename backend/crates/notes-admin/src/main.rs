@@ -1,5 +1,8 @@
 mod api;
 mod error;
+pub mod services;
+pub mod storage;
+pub mod tree;
 
 use lambda_http::{Error, run};
 

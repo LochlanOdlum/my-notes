@@ -1,5 +1,12 @@
 FROM ghcr.io/cargo-lambda/cargo-lambda:1.9.1
 
+# The AWS SDK requires a newer compiler than the base image currently ships.
+# Keep the compiler version explicit so local and CI Lambda builds use the
+# same toolchain as the checked-in dependency lockfile.
+RUN rustup toolchain install 1.95.0 --profile minimal \
+    && rustup target add aarch64-unknown-linux-gnu --toolchain 1.95.0 \
+    && rustup default 1.95.0
+
 # CDK supplies the bundling command. The upstream image's entrypoint would
 # otherwise interpret that command as Cargo Lambda arguments.
 ENTRYPOINT []

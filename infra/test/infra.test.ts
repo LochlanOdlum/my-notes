@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { InfraStack } from '../lib/infra-stack';
 
-test('defines an ARM64 custom-runtime Lambda', () => {
+test('defines an ARM64 custom-runtime Lambda', { concurrency: false }, () => {
   const app = new cdk.App();
   const stack = new InfraStack(app, 'TestStack');
 
@@ -25,7 +25,7 @@ test('defines an ARM64 custom-runtime Lambda', () => {
   });
 });
 
-test('stores content privately and exposes only published content through CloudFront', () => {
+test('stores content privately and exposes only published content through CloudFront', { concurrency: false }, () => {
   const app = new cdk.App();
   const stack = new InfraStack(app, 'TestStack');
   const template = Template.fromStack(stack);
@@ -69,7 +69,7 @@ test('stores content privately and exposes only published content through CloudF
   });
 });
 
-test('routes health publicly and requires Cognito authentication for admin paths', () => {
+test('routes health publicly and requires Cognito authentication for admin paths', { concurrency: false }, () => {
   const app = new cdk.App({ context: { adminAuthEnabled: true } });
   const stack = new InfraStack(app, 'TestStack');
   const template = Template.fromStack(stack);
