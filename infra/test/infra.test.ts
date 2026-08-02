@@ -6,7 +6,7 @@ import { InfraStack } from '../lib/infra-stack';
 
 test('defines an ARM64 custom-runtime Lambda', { concurrency: false }, () => {
   const app = new cdk.App();
-  const stack = new InfraStack(app, 'TestStack');
+  const stack = new InfraStack(app, 'TestStack', { bundleLambda: false });
 
   assert.equal(stack.stackName, 'TestStack');
 

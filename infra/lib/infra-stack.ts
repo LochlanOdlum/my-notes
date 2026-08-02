@@ -30,21 +30,26 @@ export class InfraStack extends cdk.Stack {
     ) === 'true';
 
     const backendPath = path.join(__dirname, '../../backend');
+    const testLambdaPath = path.join(__dirname, '../test/fixtures/lambda');
     const lambdaCode =
       props?.bundleLambda === false
         // A custom runtime cannot use CloudFormation inline code. This asset is
         // only synthesized in infrastructure-only tests; the real build path
-        // below remains covered by the Lambda packaging test.
-        ? lambda.Code.fromAsset(backendPath)
+        // below is covered by the workflow's CDK synth packaging step.
+        ? lambda.Code.fromAsset(testLambdaPath)
         : lambda.Code.fromAsset(backendPath, {
             bundling: {
               command: [
                 'bash',
                 '-c',
                 [
-                  'export CARGO_TARGET_DIR=/tmp/cargo-target',
+                  // These directories are inside the mounted backend asset.
+                  // They are ignored by Git and can be reused locally and by
+                  // the GitHub Actions cache between CDK bundle invocations.
+                  'export CARGO_HOME=/asset-input/target/cargo-home',
+                  'export CARGO_TARGET_DIR=/asset-input/target/cargo-lambda',
                   'cargo lambda build --release --arm64 --bin notes-admin',
-                  'cp /tmp/cargo-target/lambda/notes-admin/bootstrap /asset-output/bootstrap',
+                  'cp /asset-input/target/cargo-lambda/lambda/notes-admin/bootstrap /asset-output/bootstrap',
                 ].join(' && '),
               ],
               image: cdk.DockerImage.fromBuild(backendPath, {

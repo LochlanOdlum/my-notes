@@ -44,11 +44,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Restore Lambda build cache
+        uses: actions/cache@v4
+        with:
+          path: backend/target
+          key: ${{ runner.os }}-lambda-cargo-${{ hashFiles('backend/Cargo.lock', 'backend/Cargo.toml', 'backend/crates/**/Cargo.toml', 'backend/Dockerfile.lambda-builder') }}
+          restore-keys: |
+            ${{ runner.os }}-lambda-cargo-
+
       - name: Build the CDK application
         run: npm run build --workspace infra
 
       - name: Test the CDK application
         run: npm run test --workspace infra
+
+      - name: Package the Lambda through CDK
+        run: npm run cdk -- synth
 
   deploy:
     if: github.event_name != 'pull_request'
@@ -72,6 +83,14 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Restore Lambda build cache
+        uses: actions/cache@v4
+        with:
+          path: backend/target
+          key: ${{ runner.os }}-lambda-cargo-${{ hashFiles('backend/Cargo.lock', 'backend/Cargo.toml', 'backend/crates/**/Cargo.toml', 'backend/Dockerfile.lambda-builder') }}
+          restore-keys: |
+            ${{ runner.os }}-lambda-cargo-
 
       - name: Validate deployment configuration
         env:

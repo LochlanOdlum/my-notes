@@ -1,0 +1,2 @@
+#!/bin/sh
+# Placeholder archive used only when CDK infrastructure tests skip Rust bundling.
