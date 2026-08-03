@@ -206,6 +206,12 @@ export class InfraStack extends cdk.Stack {
     );
 
     notesAdminApi.addRoutes({
+      path: '/admin/{proxy+}',
+      methods: [apigatewayv2.HttpMethod.OPTIONS],
+      integration: adminIntegration,
+    });
+
+    notesAdminApi.addRoutes({
       path: '/admin',
       methods: [apigatewayv2.HttpMethod.ANY],
       integration: adminIntegration,

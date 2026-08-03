@@ -59,6 +59,10 @@ nav { display: grid; gap: .3rem; }
 .admin-document .eyebrow { margin-top: 0; }
 .publish-button { background: #0369a1; border-color: #0369a1; color: white; margin-top: 1.5rem; }
 .publish-button:disabled { cursor: wait; opacity: .65; }
+.note-editor { border: 1px solid #cbd5e1; border-radius: .5rem; color: #1e293b; font: 1rem/1.6 ui-monospace, monospace; min-height: 15rem; padding: .85rem; resize: vertical; width: 100%; }
+.save-button { background: #0f766e; border: 1px solid #0f766e; border-radius: .45rem; color: white; cursor: pointer; font: inherit; margin-top: .75rem; padding: .55rem .85rem; }
+.save-button:disabled { cursor: wait; opacity: .65; }
+.preview { border-top: 1px solid #e2e8f0; margin-top: 2.5rem; padding-top: 1.5rem; }
 .note-page h1 { color: #0f172a; font-family: Georgia, serif; font-size: clamp(2.25rem, 5vw, 3.75rem); letter-spacing: -.035em; line-height: 1.05; margin: 0 0 2.5rem; }
 .prose { color: #334155; font-family: Georgia, serif; font-size: 1.15rem; line-height: 1.8; }
 .prose h1, .prose h2, .prose h3 { color: #0f172a; line-height: 1.2; margin-top: 2.5rem; }

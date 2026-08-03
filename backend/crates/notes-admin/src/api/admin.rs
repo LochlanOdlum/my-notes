@@ -4,7 +4,7 @@ use axum::{
     Json, Router,
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    routing::{get, post, put},
+    routing::{get, options, post, put},
 };
 use lambda_http::RequestExt;
 use serde::{Deserialize, Serialize};
@@ -23,8 +23,13 @@ pub fn router(tree_operations: Arc<dyn TreeOperations>) -> Router {
         .route("/notes/{note_id}", get(get_note))
         .route("/notes/{note_id}/draft", put(save_note))
         .route("/notes/{note_id}/publish", post(publish_note))
+        .route("/{*path}", options(preflight))
         .fallback(not_implemented)
         .with_state(tree_operations)
+}
+
+async fn preflight() -> StatusCode {
+    StatusCode::NO_CONTENT
 }
 
 async fn get_tree(

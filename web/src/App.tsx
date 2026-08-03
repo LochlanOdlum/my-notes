@@ -53,6 +53,20 @@ function textContent(node: DocumentNode): string {
   return node.content?.map(textContent).join('') ?? ''
 }
 
+function documentToText(document: DocumentNode): string {
+  return document.content?.map(textContent).join('\n\n') ?? ''
+}
+
+function textToDocument(text: string): DocumentNode {
+  return {
+    type: 'doc',
+    content: text.split(/\n{2,}/).map((paragraph) => ({
+      type: 'paragraph',
+      content: paragraph ? [{ type: 'text', text: paragraph }] : [],
+    })),
+  }
+}
+
 function renderBlock(node: DocumentNode, key: number): React.ReactNode {
   const content = node.content?.map((child, index) => renderBlock(child, index))
 
@@ -98,9 +112,12 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   const [note, setNote] = useState<PublishedNote | null>(null)
   const [message, setMessage] = useState('Loading private notes…')
   const [publishing, setPublishing] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState('')
   const [slug, setSlug] = useState('')
+  const [draftEtag, setDraftEtag] = useState<string | null>(null)
+  const [editorText, setEditorText] = useState('')
 
   const loadTree = useCallback(() => {
     setMessage('Loading private notes…')
@@ -136,13 +153,38 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
     fetch(`${adminBaseUrl}/admin/notes/${candidate.id}`)
       .then(async (response) => {
         if (!response.ok) throw new Error(`Draft unavailable (${response.status}).`)
-        return response.json() as Promise<PublishedNote>
+        return { draft: await response.json() as PublishedNote, etag: response.headers.get('etag') }
       })
-      .then((draft) => {
+      .then(({ draft, etag }) => {
         setNote(draft)
+        setDraftEtag(etag)
+        setEditorText(documentToText(draft.document))
         setMessage('')
       })
       .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to load draft.'))
+  }
+
+  const saveDraft = async () => {
+    if (!selected || !draftEtag) return
+    setSaving(true)
+    setMessage('Saving…')
+    try {
+      const response = await fetch(`${adminBaseUrl}/admin/notes/${selected.id}/draft`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'if-match': draftEtag },
+        body: JSON.stringify({ document: textToDocument(editorText) }),
+      })
+      if (response.status === 409) throw new Error('This draft changed elsewhere. Reload it before saving.')
+      if (!response.ok) throw new Error(`Saving failed (${response.status}).`)
+      const updated = await response.json() as PublishedNote
+      setNote(updated)
+      setDraftEtag(response.headers.get('etag'))
+      setMessage('Saved.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Saving failed.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const publish = async () => {
@@ -217,7 +259,11 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
         </aside>
         <div className="admin-document">
           {selected ? <><p className="eyebrow">{selected.status}</p><h2>{selected.title}</h2></> : null}
-          {note ? <section className="prose">{note.document.content?.map(renderBlock)}</section> : null}
+          {note ? <>
+            <textarea className="note-editor" aria-label="Note content" value={editorText} onChange={(event) => setEditorText(event.target.value)} />
+            <button className="save-button" disabled={saving} onClick={saveDraft}>{saving ? 'Saving…' : 'Save draft'}</button>
+            <section className="prose preview">{note.document.content?.map(renderBlock)}</section>
+          </> : null}
           {selected?.status === 'draft' ? <button className="publish-button" disabled={publishing} onClick={publish}>{publishing ? 'Publishing…' : 'Publish page'}</button> : null}
           {message ? <p className={message.includes('failed') || message.includes('unavailable') ? 'status error' : 'status'}>{message}</p> : null}
         </div>
