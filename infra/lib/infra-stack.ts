@@ -97,6 +97,11 @@ export class InfraStack extends cdk.Stack {
       },
     );
 
+    const publishedContentOrigin = cloudfrontOrigins.S3BucketOrigin.withOriginAccessControl(
+      contentBucket,
+      { originPath: '/published' },
+    );
+
     const publishedContentDistribution = new cloudfront.Distribution(
       this,
       'PublishedContentDistribution',
@@ -104,14 +109,25 @@ export class InfraStack extends cdk.Stack {
         defaultBehavior: {
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
           cachePolicy: publishedContentCachePolicy,
-          origin: cloudfrontOrigins.S3BucketOrigin.withOriginAccessControl(
-            contentBucket,
-            { originPath: '/published' },
-          ),
+          origin: publishedContentOrigin,
           responseHeadersPolicy:
             cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
           viewerProtocolPolicy:
             cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        },
+        // This manifest selects the current immutable note revision. It must
+        // reflect a publish immediately, unlike revisioned note files which
+        // are safe (and desirable) to cache for a long time.
+        additionalBehaviors: {
+          'tree.json': {
+            allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+            cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+            origin: publishedContentOrigin,
+            responseHeadersPolicy:
+              cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+            viewerProtocolPolicy:
+              cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          },
         },
         priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       },

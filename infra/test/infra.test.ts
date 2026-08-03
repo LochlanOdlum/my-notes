@@ -46,6 +46,16 @@ test('stores content privately and exposes only published content through CloudF
   });
   template.resourceCountIs('AWS::CloudFront::Distribution', 1);
   template.resourceCountIs('AWS::CloudFront::OriginAccessControl', 1);
+  const distributions = template.findResources('AWS::CloudFront::Distribution');
+  const distribution = Object.values(distributions)[0] as {
+    Properties: { DistributionConfig: { CacheBehaviors?: Array<{ PathPattern: string }> } };
+  };
+  assert.ok(
+    distribution.Properties.DistributionConfig.CacheBehaviors?.some(
+      ({ PathPattern }) => PathPattern === 'tree.json',
+    ),
+    'tree.json must have its own uncached CloudFront behavior',
+  );
   template.hasResourceProperties('AWS::S3::BucketPolicy', {
     PolicyDocument: {
       Statement: Match.arrayWith([
