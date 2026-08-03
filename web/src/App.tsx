@@ -181,7 +181,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
       const updated = await response.json() as PublishedNote
       setNote(updated)
       setDraftEtag(response.headers.get('etag'))
-      setMessage('Saved.')
+      setMessage('Draft saved. Publish changes to update the public page.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Saving failed.')
     } finally {
@@ -266,7 +266,7 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
             <button className="save-button" disabled={saving} onClick={saveDraft}>{saving ? 'Saving…' : 'Save draft'}</button>
             <section className="prose preview">{note.document.content?.map(renderBlock)}</section>
           </> : null}
-          {selected?.status === 'draft' ? <button className="publish-button" disabled={publishing} onClick={publish}>{publishing ? 'Publishing…' : 'Publish page'}</button> : null}
+          {selected ? <button className="publish-button" disabled={publishing} onClick={publish}>{publishing ? 'Publishing…' : selected.status === 'published' ? 'Publish changes' : 'Publish page'}</button> : null}
           {message ? <p className={message.includes('failed') || message.includes('unavailable') ? 'status error' : 'status'}>{message}</p> : null}
         </div>
       </div>
