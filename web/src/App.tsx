@@ -174,7 +174,9 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
     try {
       const response = await fetch(`${adminBaseUrl}/admin/notes`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        // Sending JSON without an explicit application/json header keeps this
+        // development request CORS-simple. The Lambda parses the JSON body
+        // independently of the content type.
         body: JSON.stringify({ title, slug }),
       })
       if (!response.ok) throw new Error(`Creating the note failed (${response.status}).`)
@@ -236,6 +238,9 @@ function App() {
     const controller = new AbortController()
     fetch(`${publishedBaseUrl}/tree.json`, { signal: controller.signal })
       .then(async (response) => {
+        // A private S3 origin responds with 403 for a missing tree.json. Until
+        // the first publish, that means the public site is simply empty.
+        if (response.status === 403 || response.status === 404) return { nodes: [] }
         if (!response.ok) throw new Error(`The public tree is unavailable (${response.status}).`)
         return response.json() as Promise<TreeManifest>
       })
