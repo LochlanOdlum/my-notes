@@ -43,6 +43,7 @@ pub struct TreeService<S, I, C> {
 
 #[async_trait]
 pub trait TreeOperations: Send + Sync {
+    async fn load_tree(&self) -> Result<TreeManifest, TreeServiceError>;
     async fn create_note(&self, input: CreateNote) -> Result<NodeId, TreeServiceError>;
     async fn load_note(&self, note_id: NodeId) -> Result<StoredNoteDocument, TreeServiceError>;
     async fn save_note(
@@ -217,6 +218,16 @@ where
 
 #[async_trait]
 impl TreeOperations for NotesService {
+    async fn load_tree(&self) -> Result<TreeManifest, TreeServiceError> {
+        self.tree
+            .load()
+            .await?
+            .map(|stored| stored.manifest)
+            .ok_or_else(|| {
+                TreeServiceError::Storage(StoreError::InvalidManifest("tree is missing".to_owned()))
+            })
+    }
+
     async fn create_note(&self, input: CreateNote) -> Result<NodeId, TreeServiceError> {
         let note_id = self.tree.create_note(input).await?.value;
         let draft = NoteDocument::empty(note_id.clone(), self.next_id()?, self.now());

@@ -136,6 +136,17 @@ export class InfraStack extends cdk.Stack {
 
     const notesAdminApi = new apigatewayv2.HttpApi(this, 'NotesAdminApi', {
       apiName: 'my-notes-admin',
+      corsPreflight: {
+        allowCredentials: false,
+        allowHeaders: ['authorization', 'content-type', 'if-match'],
+        allowMethods: [
+          apigatewayv2.CorsHttpMethod.GET,
+          apigatewayv2.CorsHttpMethod.POST,
+          apigatewayv2.CorsHttpMethod.PUT,
+        ],
+        allowOrigins: ['*'],
+        exposeHeaders: ['etag'],
+      },
       createDefaultStage: false,
     });
 

@@ -39,13 +39,22 @@ mod tests {
         note::NoteDocument,
         services::{PublishedNote, TreeOperations, TreeServiceError},
         storage::StoredNoteDocument,
-        tree::{CreateNote, NodeId},
+        tree::{CreateNote, NodeId, TreeManifest},
     };
 
     struct TestTreeOperations;
 
     #[async_trait]
     impl TreeOperations for TestTreeOperations {
+        async fn load_tree(&self) -> Result<TreeManifest, TreeServiceError> {
+            Ok(TreeManifest {
+                schema_version: 1,
+                revision: "tree-revision".to_owned(),
+                updated_at: "2026-08-03T12:00:00Z".to_owned(),
+                nodes: Vec::new(),
+            })
+        }
+
         async fn create_note(&self, _input: CreateNote) -> Result<NodeId, TreeServiceError> {
             Ok(NodeId::from("note-123"))
         }
@@ -114,7 +123,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_operations_are_available_while_authentication_is_disabled() {
+    async fn loads_the_private_tree_while_authentication_is_disabled() {
         let response = test_app()
             .oneshot(
                 Request::builder()
@@ -125,13 +134,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(response.status(), StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         assert_eq!(
             body.as_ref(),
-            br#"{"error":{"code":"not_implemented","message":"This admin operation is not implemented yet."}}"#
+            br#"{"schemaVersion":1,"revision":"tree-revision","updatedAt":"2026-08-03T12:00:00Z","nodes":[]}"#
         );
     }
 

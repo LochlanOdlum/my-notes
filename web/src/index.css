@@ -23,6 +23,8 @@ body { margin: 0; }
 }
 
 .brand { color: #0f172a; font-size: 1.25rem; font-weight: 750; text-decoration: none; }
+.admin-toggle, .secondary-button, .publish-button { border: 1px solid #bae6fd; border-radius: .45rem; background: #f0f9ff; color: #075985; cursor: pointer; font: inherit; padding: .5rem .7rem; }
+.admin-toggle { float: right; font-size: .85rem; }
 .eyebrow { color: #64748b; font-size: .75rem; font-weight: 700; letter-spacing: .09em; margin: 2rem 0 .75rem; text-transform: uppercase; }
 .status { color: #64748b; line-height: 1.5; }
 .error { color: #b91c1c; }
@@ -41,6 +43,18 @@ nav { display: grid; gap: .3rem; }
 .note-link:hover, .note-link.active { background: #e0f2fe; color: #075985; }
 
 .note-page { padding: 4rem clamp(2rem, 6vw, 5rem); }
+.admin-workspace { padding: 3rem clamp(2rem, 6vw, 5rem); }
+.admin-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 2rem; }
+.admin-heading .eyebrow { margin: 0 0 .4rem; }
+.admin-heading h1, .admin-document h2 { color: #0f172a; font-family: Georgia, serif; margin: 0; }
+.admin-layout { display: grid; gap: 2rem; grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr); }
+.admin-list { border-right: 1px solid #e2e8f0; display: grid; gap: .3rem; padding-right: 1rem; }
+.admin-list .note-link { display: flex; justify-content: space-between; }
+.admin-list small { color: #64748b; text-transform: capitalize; }
+.admin-document { min-width: 0; }
+.admin-document .eyebrow { margin-top: 0; }
+.publish-button { background: #0369a1; border-color: #0369a1; color: white; margin-top: 1.5rem; }
+.publish-button:disabled { cursor: wait; opacity: .65; }
 .note-page h1 { color: #0f172a; font-family: Georgia, serif; font-size: clamp(2.25rem, 5vw, 3.75rem); letter-spacing: -.035em; line-height: 1.05; margin: 0 0 2.5rem; }
 .prose { color: #334155; font-family: Georgia, serif; font-size: 1.15rem; line-height: 1.8; }
 .prose h1, .prose h2, .prose h3 { color: #0f172a; line-height: 1.2; margin-top: 2.5rem; }
@@ -54,4 +68,7 @@ nav { display: grid; gap: .3rem; }
   nav { display: flex; overflow-x: auto; }
   .note-link { white-space: nowrap; }
   .note-page { padding: 2.5rem 1.5rem; }
+  .admin-workspace { padding: 2.5rem 1.5rem; }
+  .admin-layout { grid-template-columns: 1fr; }
+  .admin-list { border-bottom: 1px solid #e2e8f0; border-right: 0; padding: 0 0 1rem; }
 }

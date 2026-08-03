@@ -18,12 +18,23 @@ use crate::{
 
 pub fn router(tree_operations: Arc<dyn TreeOperations>) -> Router {
     Router::new()
+        .route("/tree", get(get_tree))
         .route("/notes", post(create_note))
         .route("/notes/{note_id}", get(get_note))
         .route("/notes/{note_id}/draft", put(save_note))
         .route("/notes/{note_id}/publish", post(publish_note))
         .fallback(not_implemented)
         .with_state(tree_operations)
+}
+
+async fn get_tree(
+    State(tree_operations): State<Arc<dyn TreeOperations>>,
+    request: Request,
+) -> Result<Json<crate::tree::TreeManifest>, ApiError> {
+    authorize(&request)?;
+    Ok(Json(
+        tree_operations.load_tree().await.map_err(map_tree_error)?,
+    ))
 }
 
 #[derive(Deserialize)]
