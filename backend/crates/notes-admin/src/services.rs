@@ -219,13 +219,13 @@ where
 #[async_trait]
 impl TreeOperations for NotesService {
     async fn load_tree(&self) -> Result<TreeManifest, TreeServiceError> {
-        self.tree
-            .load()
-            .await?
-            .map(|stored| stored.manifest)
-            .ok_or_else(|| {
-                TreeServiceError::Storage(StoreError::InvalidManifest("tree is missing".to_owned()))
-            })
+        match self.tree.load().await? {
+            Some(stored) => Ok(stored.manifest),
+            None => {
+                let mut ids = UlidGenerator;
+                Ok(TreeManifest::new(&mut ids, &self.clock))
+            }
+        }
     }
 
     async fn create_note(&self, input: CreateNote) -> Result<NodeId, TreeServiceError> {
