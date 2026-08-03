@@ -17,4 +17,5 @@ time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 tracing-subscriber = { version = "0.3", features = ["json"] }
 tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }
 ulid = "1"

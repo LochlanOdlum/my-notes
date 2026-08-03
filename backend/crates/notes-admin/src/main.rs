@@ -123,6 +123,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn accepts_browser_preflight_for_draft_saves() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/admin/notes/note-123/draft")
+                    .header("origin", "http://localhost:5173")
+                    .header("access-control-request-method", "PUT")
+                    .header("access-control-request-headers", "content-type,if-match")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert!(response.status().is_success());
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "http://localhost:5173"
+        );
+        assert!(
+            response
+                .headers()
+                .get("access-control-allow-methods")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("PUT")
+        );
+    }
+
+    #[tokio::test]
     async fn loads_the_private_tree_while_authentication_is_disabled() {
         let response = test_app()
             .oneshot(
