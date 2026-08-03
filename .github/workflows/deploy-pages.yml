@@ -46,6 +46,7 @@ jobs:
         run: npm run build --workspace web
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          VITE_PUBLISHED_CONTENT_URL: https://d81ul6xa7pt91.cloudfront.net
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v4
