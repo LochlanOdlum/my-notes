@@ -184,10 +184,8 @@ mod tests {
                 Request::builder()
                     .method("PUT")
                     .uri("/admin/notes/note-123/draft")
-                    .header("if-match", "etag-1")
-                    .header("content-type", "application/json")
                     .body(Body::from(
-                        r#"{"document":{"type":"doc","content":[{"type":"paragraph"}]}}"#,
+                        r#"{"etag":"etag-1","document":{"type":"doc","content":[{"type":"paragraph"}]}}"#,
                     ))
                     .unwrap(),
             )

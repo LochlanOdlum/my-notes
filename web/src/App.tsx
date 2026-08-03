@@ -171,8 +171,10 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
     try {
       const response = await fetch(`${adminBaseUrl}/admin/notes/${selected.id}/draft`, {
         method: 'PUT',
-        headers: { 'content-type': 'application/json', 'if-match': draftEtag },
-        body: JSON.stringify({ document: textToDocument(editorText) }),
+        // No custom headers: this remains a CORS-simple request while auth is
+        // disabled for local development. The API also accepts this ETag in
+        // the body and retains the standard If-Match header for other clients.
+        body: JSON.stringify({ document: textToDocument(editorText), etag: draftEtag }),
       })
       if (response.status === 409) throw new Error('This draft changed elsewhere. Reload it before saving.')
       if (!response.ok) throw new Error(`Saving failed (${response.status}).`)

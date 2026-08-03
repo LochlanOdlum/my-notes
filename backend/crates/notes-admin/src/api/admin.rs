@@ -59,6 +59,7 @@ struct CreateNoteResponse {
 #[derive(Deserialize)]
 struct SaveDraftRequest {
     document: serde_json::Value,
+    etag: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -109,17 +110,19 @@ async fn save_note(
     request: Request,
 ) -> Result<(HeaderMap, Json<NoteDocument>), ApiError> {
     authorize(&request)?;
-    let etag = request
+    let header_etag = request
         .headers()
         .get(header::IF_MATCH)
         .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
-        .ok_or_else(|| ApiError::BadRequest("If-Match header is required".to_owned()))?;
+        .map(str::to_owned);
     let body = axum::body::to_bytes(request.into_body(), 1024 * 1024)
         .await
         .map_err(|_| ApiError::BadRequest("request body is too large".to_owned()))?;
     let input: SaveDraftRequest = serde_json::from_slice(&body)
         .map_err(|_| ApiError::BadRequest("request body must be valid JSON".to_owned()))?;
+    let etag = header_etag.or(input.etag).ok_or_else(|| {
+        ApiError::BadRequest("If-Match header or etag body field is required".to_owned())
+    })?;
     let stored = tree_operations
         .save_note(note_id, input.document, etag)
         .await
