@@ -48,9 +48,13 @@ nav { display: grid; gap: .3rem; }
 .admin-heading .eyebrow { margin: 0 0 .4rem; }
 .admin-heading h1, .admin-document h2 { color: #0f172a; font-family: Georgia, serif; margin: 0; }
 .admin-layout { display: grid; gap: 2rem; grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr); }
-.admin-list { border-right: 1px solid #e2e8f0; display: grid; gap: .3rem; padding-right: 1rem; }
+.admin-list { border-right: 1px solid #e2e8f0; display: grid; gap: 1rem; padding-right: 1rem; }
 .admin-list .note-link { display: flex; justify-content: space-between; }
 .admin-list small { color: #64748b; text-transform: capitalize; }
+.create-note { display: grid; gap: .6rem; }
+.create-note label { color: #475569; display: grid; font-size: .78rem; font-weight: 700; gap: .25rem; }
+.create-note input { border: 1px solid #cbd5e1; border-radius: .35rem; font: inherit; min-width: 0; padding: .45rem; }
+.create-note .publish-button { margin-top: 0; }
 .admin-document { min-width: 0; }
 .admin-document .eyebrow { margin-top: 0; }
 .publish-button { background: #0369a1; border-color: #0369a1; color: white; margin-top: 1.5rem; }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const publishedBaseUrl = (
   import.meta.env.VITE_PUBLISHED_CONTENT_URL ??
@@ -98,9 +98,13 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   const [note, setNote] = useState<PublishedNote | null>(null)
   const [message, setMessage] = useState('Loading private notes…')
   const [publishing, setPublishing] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [title, setTitle] = useState('')
+  const [slug, setSlug] = useState('')
 
-  useEffect(() => {
-    fetch(`${adminBaseUrl}/admin/tree`)
+  const loadTree = useCallback(() => {
+    setMessage('Loading private notes…')
+    return fetch(`${adminBaseUrl}/admin/tree`)
       .then(async (response) => {
         if (!response.ok) throw new Error(`Admin API unavailable (${response.status}).`)
         return response.json() as Promise<TreeManifest>
@@ -108,9 +112,17 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
       .then((nextTree) => {
         setTree(nextTree)
         setMessage('')
+        return nextTree
       })
-      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to load private notes.'))
+      .catch((error: unknown) => {
+        setMessage(error instanceof Error ? error.message : 'Unable to load private notes.')
+        return null
+      })
   }, [])
+
+  useEffect(() => {
+    void loadTree()
+  }, [loadTree])
 
   const notes = useMemo(
     () => (tree?.nodes.filter((node): node is NoteNode => node.type === 'note') ?? []).sort((a, b) => a.position - b.position),
@@ -155,6 +167,30 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
+  const createNote = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setCreating(true)
+    setMessage('Creating note…')
+    try {
+      const response = await fetch(`${adminBaseUrl}/admin/notes`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title, slug }),
+      })
+      if (!response.ok) throw new Error(`Creating the note failed (${response.status}).`)
+      const created = await response.json() as { id: string }
+      setTitle('')
+      setSlug('')
+      const nextTree = await loadTree()
+      const createdNote = nextTree?.nodes.find((node): node is NoteNode => node.type === 'note' && node.id === created.id)
+      if (createdNote) selectNote(createdNote)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Creating the note failed.')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
     <section className="admin-workspace">
       <div className="admin-heading">
@@ -162,14 +198,21 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
         <button className="secondary-button" onClick={onClose}>View public site</button>
       </div>
       <div className="admin-layout">
-        <nav className="admin-list" aria-label="Private notes">
+        <aside className="admin-list">
+          <form className="create-note" onSubmit={createNote}>
+            <label>Title<input value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
+            <label>Slug<input value={slug} onChange={(event) => setSlug(event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /></label>
+            <button className="publish-button" disabled={creating} type="submit">{creating ? 'Creating…' : 'New note'}</button>
+          </form>
+          <nav aria-label="Private notes">
           {notes.map((candidate) => (
             <button className={candidate.id === selected?.id ? 'note-link active' : 'note-link'} key={candidate.id} onClick={() => selectNote(candidate)}>
               <span>{candidate.title}</span><small>{candidate.status}</small>
             </button>
           ))}
           {tree && notes.length === 0 ? <p className="status">No notes yet.</p> : null}
-        </nav>
+          </nav>
+        </aside>
         <div className="admin-document">
           {selected ? <><p className="eyebrow">{selected.status}</p><h2>{selected.title}</h2></> : null}
           {note ? <section className="prose">{note.document.content?.map(renderBlock)}</section> : null}

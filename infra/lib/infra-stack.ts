@@ -141,6 +141,7 @@ export class InfraStack extends cdk.Stack {
         allowHeaders: ['authorization', 'content-type', 'if-match'],
         allowMethods: [
           apigatewayv2.CorsHttpMethod.GET,
+          apigatewayv2.CorsHttpMethod.OPTIONS,
           apigatewayv2.CorsHttpMethod.POST,
           apigatewayv2.CorsHttpMethod.PUT,
         ],
