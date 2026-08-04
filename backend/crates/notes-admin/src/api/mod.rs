@@ -17,7 +17,10 @@ pub fn router(tree_operations: Arc<dyn TreeOperations>) -> Router {
         .nest("/admin", admin::router(tree_operations))
         .layer(
             CorsLayer::new()
-                .allow_origin(HeaderValue::from_static("http://localhost:5173"))
+                .allow_origin([
+                    HeaderValue::from_static("http://localhost:5173"),
+                    HeaderValue::from_static("https://lochlanodlum.github.io"),
+                ])
                 .allow_methods([Method::GET, Method::POST, Method::PUT, Method::OPTIONS])
                 .allow_headers([
                     header::AUTHORIZATION,

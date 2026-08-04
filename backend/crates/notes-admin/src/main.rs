@@ -158,6 +158,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn allows_the_deployed_github_pages_origin() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .header("origin", "https://lochlanodlum.github.io")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "https://lochlanodlum.github.io"
+        );
+    }
+
+    #[tokio::test]
     async fn loads_the_private_tree_while_authentication_is_disabled() {
         let response = test_app()
             .oneshot(
