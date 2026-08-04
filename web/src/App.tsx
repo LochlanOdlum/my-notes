@@ -106,106 +106,195 @@ function noteSlugFromHash() {
   return decodeURIComponent(window.location.hash.slice(1))
 }
 
-function AdminPanel({ onClose }: { onClose: () => void }) {
-  const [tree, setTree] = useState<TreeManifest | null>(null)
-  const [selected, setSelected] = useState<NoteNode | null>(null)
-  const [note, setNote] = useState<PublishedNote | null>(null)
-  const [message, setMessage] = useState('Loading private notes…')
-  const [publishing, setPublishing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [title, setTitle] = useState('')
-  const [slug, setSlug] = useState('')
+function App() {
+  const [publicTree, setPublicTree] = useState<TreeManifest | null>(null)
+  const [publicTreeError, setPublicTreeError] = useState<string | null>(null)
+  const [privateTree, setPrivateTree] = useState<TreeManifest | null>(null)
+  const [privateTreeError, setPrivateTreeError] = useState<string | null>(null)
+  const [selectedSlug, setSelectedSlug] = useState(noteSlugFromHash)
+  const [publishedNote, setPublishedNote] = useState<PublishedNote | null>(null)
+  const [publishedNoteError, setPublishedNoteError] = useState<string | null>(null)
+  const [draftNote, setDraftNote] = useState<PublishedNote | null>(null)
   const [draftEtag, setDraftEtag] = useState<string | null>(null)
   const [editorText, setEditorText] = useState('')
+  const [adminMessage, setAdminMessage] = useState('')
+  const [adminOpen, setAdminOpen] = useState(false)
+  const [adminView, setAdminView] = useState<'draft' | 'published'>('draft')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [publishing, setPublishing] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [slug, setSlug] = useState('')
 
-  const loadTree = useCallback(() => {
-    setMessage('Loading private notes…')
-    return fetch(`${adminBaseUrl}/admin/tree`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Admin API unavailable (${response.status}).`)
-        return response.json() as Promise<TreeManifest>
+  const loadPublicTree = useCallback(async () => {
+    setPublicTreeError(null)
+    try {
+      const response = await fetch(`${publishedBaseUrl}/tree.json`, {
+        // The manifest chooses the current immutable note revision. Never let a
+        // browser reuse an older manifest after a publish.
+        cache: 'no-store',
       })
-      .then((nextTree) => {
-        setTree(nextTree)
-        setMessage('')
-        return nextTree
-      })
-      .catch((error: unknown) => {
-        setMessage(error instanceof Error ? error.message : 'Unable to load private notes.')
-        return null
-      })
+      // A private S3 origin responds with 403 for a missing tree.json. Until
+      // the first publish, that means the public site is simply empty.
+      if (response.status === 403 || response.status === 404) {
+        const emptyTree = { nodes: [] }
+        setPublicTree(emptyTree)
+        return emptyTree
+      }
+      if (!response.ok) throw new Error(`The public tree is unavailable (${response.status}).`)
+      const nextTree = await response.json() as TreeManifest
+      setPublicTree(nextTree)
+      return nextTree
+    } catch (error) {
+      setPublicTreeError(error instanceof Error ? error.message : 'Unable to load published notes.')
+      return null
+    }
+  }, [])
+
+  const loadPrivateTree = useCallback(async () => {
+    setPrivateTreeError(null)
+    try {
+      const response = await fetch(`${adminBaseUrl}/admin/tree`)
+      if (!response.ok) throw new Error(`Admin API unavailable (${response.status}).`)
+      const nextTree = await response.json() as TreeManifest
+      setPrivateTree(nextTree)
+      return nextTree
+    } catch (error) {
+      setPrivateTreeError(error instanceof Error ? error.message : 'Unable to load private notes.')
+      return null
+    }
   }, [])
 
   useEffect(() => {
-    void loadTree()
-  }, [loadTree])
+    void loadPublicTree()
+  }, [loadPublicTree])
 
-  const notes = useMemo(
-    () => (tree?.nodes.filter((node): node is NoteNode => node.type === 'note') ?? []).sort((a, b) => a.position - b.position),
-    [tree],
+  useEffect(() => {
+    if (adminOpen && !privateTree) void loadPrivateTree()
+  }, [adminOpen, loadPrivateTree, privateTree])
+
+  useEffect(() => {
+    const onHashChange = () => setSelectedSlug(noteSlugFromHash())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  const publicNotes = useMemo(
+    () =>
+      (publicTree?.nodes.filter((node): node is NoteNode => node.type === 'note' && node.status === 'published' && Boolean(node.publishedRevision)) ?? []).sort(
+        (left, right) => left.position - right.position,
+      ),
+    [publicTree],
   )
+  const privateNotes = useMemo(
+    () => (privateTree?.nodes.filter((node): node is NoteNode => node.type === 'note') ?? []).sort(
+      (left, right) => left.position - right.position,
+    ),
+    [privateTree],
+  )
+  const notes = adminOpen ? privateNotes : publicNotes
+  const selectedNote = notes.find((candidate) => candidate.slug === selectedSlug) ?? notes[0]
+  const selectedNoteId = selectedNote?.id
+  const selectedPublishedRevision = selectedNote?.publishedRevision
+  const showPublished = !adminOpen || adminView === 'published'
 
-  const selectNote = (candidate: NoteNode) => {
-    setSelected(candidate)
-    setNote(null)
-    setMessage('Loading draft…')
-    fetch(`${adminBaseUrl}/admin/notes/${candidate.id}`)
+  useEffect(() => {
+    if (!selectedNoteId || !selectedPublishedRevision || !showPublished) return
+    const controller = new AbortController()
+    setPublishedNote(null)
+    setPublishedNoteError(null)
+    fetch(
+      `${publishedBaseUrl}/notes/${selectedNoteId}/${selectedPublishedRevision}.json`,
+      { signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`This note is unavailable (${response.status}).`)
+        return response.json() as Promise<PublishedNote>
+      })
+      .then(setPublishedNote)
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setPublishedNoteError(error instanceof Error ? error.message : 'Unable to load this note.')
+        }
+      })
+    return () => controller.abort()
+  }, [selectedNoteId, selectedPublishedRevision, showPublished])
+
+  useEffect(() => {
+    if (!adminOpen || adminView !== 'draft' || !selectedNoteId) return
+    const controller = new AbortController()
+    setDraftNote(null)
+    setDraftEtag(null)
+    setAdminMessage('Loading draft…')
+    fetch(`${adminBaseUrl}/admin/notes/${selectedNoteId}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Draft unavailable (${response.status}).`)
         return { draft: await response.json() as PublishedNote, etag: response.headers.get('etag') }
       })
       .then(({ draft, etag }) => {
-        setNote(draft)
+        setDraftNote(draft)
         setDraftEtag(etag)
         setEditorText(documentToText(draft.document))
-        setMessage('')
+        setAdminMessage('')
       })
-      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Unable to load draft.'))
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          setAdminMessage(error instanceof Error ? error.message : 'Unable to load draft.')
+        }
+      })
+    return () => controller.abort()
+  }, [adminOpen, adminView, selectedNoteId])
+
+  const selectNote = (selected: NoteNode) => {
+    setPublishedNote(null)
+    setPublishedNoteError(null)
+    setSelectedSlug(selected.slug)
+    window.location.hash = encodeURIComponent(selected.slug)
+    if (adminOpen) setAdminView('draft')
   }
 
   const saveDraft = async () => {
-    if (!selected || !draftEtag) return
+    if (!selectedNoteId || !draftEtag) return
     setSaving(true)
-    setMessage('Saving…')
+    setAdminMessage('Saving…')
     try {
-      const response = await fetch(`${adminBaseUrl}/admin/notes/${selected.id}/draft`, {
+      const response = await fetch(`${adminBaseUrl}/admin/notes/${selectedNoteId}/draft`, {
         method: 'PUT',
-        // No custom headers: this remains a CORS-simple request while auth is
-        // disabled for local development. The API also accepts this ETag in
-        // the body and retains the standard If-Match header for other clients.
         body: JSON.stringify({ document: textToDocument(editorText), etag: draftEtag }),
       })
       if (response.status === 409) throw new Error('This draft changed elsewhere. Reload it before saving.')
       if (!response.ok) throw new Error(`Saving failed (${response.status}).`)
       const updated = await response.json() as PublishedNote
-      setNote(updated)
+      setDraftNote(updated)
       setDraftEtag(response.headers.get('etag'))
-      setMessage('Draft saved. Publish changes to update the public page.')
+      setAdminMessage('Draft saved. Publish it when you are ready.')
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Saving failed.')
+      setAdminMessage(error instanceof Error ? error.message : 'Saving failed.')
     } finally {
       setSaving(false)
     }
   }
 
   const publish = async () => {
-    if (!selected) return
+    if (!selectedNoteId) return
     setPublishing(true)
-    setMessage('Publishing…')
+    setAdminMessage('Publishing…')
     try {
-      const response = await fetch(`${adminBaseUrl}/admin/notes/${selected.id}/publish`, { method: 'POST' })
+      const response = await fetch(`${adminBaseUrl}/admin/notes/${selectedNoteId}/publish`, { method: 'POST' })
       if (!response.ok) throw new Error(`Publishing failed (${response.status}).`)
       const result = await response.json() as PublishedNoteResponse
-      const published = { ...selected, status: 'published' as const, publishedRevision: result.revision }
-      setSelected(published)
-      setTree((current) => current && {
+      setPrivateTree((current) => current && {
         ...current,
-        nodes: current.nodes.map((node) => node.type === 'note' && node.id === published.id ? published : node),
+        nodes: current.nodes.map((node) => node.type === 'note' && node.id === selectedNoteId
+          ? { ...node, status: 'published', publishedRevision: result.revision }
+          : node),
       })
-      setMessage(`Published at ${result.publicPath}`)
+      await loadPublicTree()
+      setAdminMessage(`Published at ${result.publicPath}`)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Publishing failed.')
+      setAdminMessage(error instanceof Error ? error.message : 'Publishing failed.')
     } finally {
       setPublishing(false)
     }
@@ -214,139 +303,30 @@ function AdminPanel({ onClose }: { onClose: () => void }) {
   const createNote = async (event: React.FormEvent) => {
     event.preventDefault()
     setCreating(true)
-    setMessage('Creating note…')
+    setAdminMessage('Creating note…')
     try {
       const response = await fetch(`${adminBaseUrl}/admin/notes`, {
         method: 'POST',
-        // Sending JSON without an explicit application/json header keeps this
-        // development request CORS-simple. The Lambda parses the JSON body
-        // independently of the content type.
         body: JSON.stringify({ title, slug }),
       })
       if (!response.ok) throw new Error(`Creating the note failed (${response.status}).`)
       const created = await response.json() as { id: string }
+      const nextTree = await loadPrivateTree()
+      const createdNote = nextTree?.nodes.find((node): node is NoteNode => node.type === 'note' && node.id === created.id)
       setTitle('')
       setSlug('')
-      const nextTree = await loadTree()
-      const createdNote = nextTree?.nodes.find((node): node is NoteNode => node.type === 'note' && node.id === created.id)
+      setCreateOpen(false)
       if (createdNote) selectNote(createdNote)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Creating the note failed.')
+      setAdminMessage(error instanceof Error ? error.message : 'Creating the note failed.')
     } finally {
       setCreating(false)
     }
   }
 
-  return (
-    <section className="admin-workspace">
-      <div className="admin-heading">
-        <div><p className="eyebrow">Admin</p><h1>Private notes</h1></div>
-        <button className="secondary-button" onClick={onClose}>View public site</button>
-      </div>
-      <div className="admin-layout">
-        <aside className="admin-list">
-          <form className="create-note" onSubmit={createNote}>
-            <label>Title<input value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
-            <label>Slug<input value={slug} onChange={(event) => setSlug(event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /></label>
-            <button className="publish-button" disabled={creating} type="submit">{creating ? 'Creating…' : 'New note'}</button>
-          </form>
-          <nav aria-label="Private notes">
-          {notes.map((candidate) => (
-            <button className={candidate.id === selected?.id ? 'note-link active' : 'note-link'} key={candidate.id} onClick={() => selectNote(candidate)}>
-              <span>{candidate.title}</span><small>{candidate.status}</small>
-            </button>
-          ))}
-          {tree && notes.length === 0 ? <p className="status">No notes yet.</p> : null}
-          </nav>
-        </aside>
-        <div className="admin-document">
-          {selected ? <><p className="eyebrow">{selected.status}</p><h2>{selected.title}</h2></> : null}
-          {note ? <>
-            <textarea className="note-editor" aria-label="Note content" value={editorText} onChange={(event) => setEditorText(event.target.value)} />
-            <button className="save-button" disabled={saving} onClick={saveDraft}>{saving ? 'Saving…' : 'Save draft'}</button>
-            <section className="prose preview">{note.document.content?.map(renderBlock)}</section>
-          </> : null}
-          {selected ? <button className="publish-button" disabled={publishing} onClick={publish}>{publishing ? 'Publishing…' : selected.status === 'published' ? 'Publish changes' : 'Publish page'}</button> : null}
-          {message ? <p className={message.includes('failed') || message.includes('unavailable') ? 'status error' : 'status'}>{message}</p> : null}
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function App() {
-  const [tree, setTree] = useState<TreeManifest | null>(null)
-  const [treeError, setTreeError] = useState<string | null>(null)
-  const [selectedSlug, setSelectedSlug] = useState(noteSlugFromHash)
-  const [note, setNote] = useState<PublishedNote | null>(null)
-  const [noteError, setNoteError] = useState<string | null>(null)
-  const [adminOpen, setAdminOpen] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    fetch(`${publishedBaseUrl}/tree.json`, {
-      // The manifest chooses the current immutable note revision. Never let a
-      // browser reuse an older manifest after a publish.
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        // A private S3 origin responds with 403 for a missing tree.json. Until
-        // the first publish, that means the public site is simply empty.
-        if (response.status === 403 || response.status === 404) return { nodes: [] }
-        if (!response.ok) throw new Error(`The public tree is unavailable (${response.status}).`)
-        return response.json() as Promise<TreeManifest>
-      })
-      .then(setTree)
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          setTreeError(error instanceof Error ? error.message : 'Unable to load published notes.')
-        }
-      })
-    return () => controller.abort()
-  }, [])
-
-  useEffect(() => {
-    const onHashChange = () => setSelectedSlug(noteSlugFromHash())
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
-  }, [])
-
-  const notes = useMemo(
-    () =>
-      (tree?.nodes.filter((node): node is NoteNode => node.type === 'note' && node.status === 'published' && Boolean(node.publishedRevision)) ?? []).sort(
-        (left, right) => left.position - right.position,
-      ),
-    [tree],
-  )
-  const selectedNote = notes.find((candidate) => candidate.slug === selectedSlug) ?? notes[0]
-
-  useEffect(() => {
-    if (!selectedNote) return
-    const controller = new AbortController()
-    setNote(null)
-    setNoteError(null)
-    fetch(
-      `${publishedBaseUrl}/notes/${selectedNote.id}/${selectedNote.publishedRevision}.json`,
-      { signal: controller.signal },
-    )
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`This note is unavailable (${response.status}).`)
-        return response.json() as Promise<PublishedNote>
-      })
-      .then(setNote)
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          setNoteError(error instanceof Error ? error.message : 'Unable to load this note.')
-        }
-      })
-    return () => controller.abort()
-  }, [selectedNote?.id, selectedNote?.publishedRevision])
-
-  const selectNote = (selected: NoteNode) => {
-    window.location.hash = encodeURIComponent(selected.slug)
-  }
+  const draftDirty = draftNote ? editorText !== documentToText(draftNote.document) : false
+  const tree = adminOpen ? privateTree : publicTree
+  const treeError = adminOpen ? privateTreeError : publicTreeError
 
   return (
     <main className={sidebarOpen ? 'site-shell' : 'site-shell sidebar-collapsed'}>
@@ -366,32 +346,80 @@ function App() {
           </button>
         </div>
         <div className="sidebar-content" hidden={!sidebarOpen} id="notes-sidebar-content">
-          <button className="admin-toggle" onClick={() => setAdminOpen(true)}>Admin</button>
-          <p className="eyebrow">Published pages</p>
+          <button
+            className={adminOpen ? 'admin-toggle active' : 'admin-toggle'}
+            onClick={() => {
+              setAdminOpen((open) => !open)
+              setAdminView('draft')
+              setAdminMessage('')
+            }}
+          >
+            {adminOpen ? 'Exit admin' : 'Admin'}
+          </button>
+          <p className="eyebrow">{adminOpen ? 'All pages' : 'Published pages'}</p>
+          {adminOpen ? <>
+            <button className="new-note-toggle" onClick={() => setCreateOpen((open) => !open)}>
+              {createOpen ? 'Cancel' : '+ New note'}
+            </button>
+            {createOpen ? <form className="create-note" onSubmit={createNote}>
+              <label>Title<input value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
+              <label>Slug<input value={slug} onChange={(event) => setSlug(event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /></label>
+              <button className="save-button" disabled={creating} type="submit">{creating ? 'Creating…' : 'Create note'}</button>
+            </form> : null}
+          </> : null}
           {treeError ? <p className="status error">{treeError}</p> : null}
           {!tree && !treeError ? <p className="status">Loading notes…</p> : null}
-          {tree && notes.length === 0 ? <p className="status">No notes have been published yet.</p> : null}
-          <nav aria-label="Published notes">
+          {tree && notes.length === 0 ? <p className="status">{adminOpen ? 'No notes yet.' : 'No notes have been published yet.'}</p> : null}
+          <nav aria-label={adminOpen ? 'All notes' : 'Published notes'}>
             {notes.map((candidate) => (
               <button
                 className={candidate.id === selectedNote?.id ? 'note-link active' : 'note-link'}
                 key={candidate.id}
                 onClick={() => selectNote(candidate)}
               >
-                {candidate.title}
+                <span>{candidate.title}</span>
+                {adminOpen ? <small>{candidate.status}</small> : null}
               </button>
             ))}
           </nav>
         </div>
       </aside>
-      {adminOpen ? <AdminPanel onClose={() => setAdminOpen(false)} /> : <article className="note-page">
+      <article className="note-page">
         {!selectedNote && tree ? <h1>Choose a note</h1> : null}
-        {selectedNote ? <p className="eyebrow">{selectedNote.slug}</p> : null}
+        {selectedNote ? <p className="eyebrow">{selectedNote.slug}{adminOpen ? ` · ${selectedNote.status}` : ''}</p> : null}
         {selectedNote ? <h1>{selectedNote.title}</h1> : null}
-        {selectedNote && !note && !noteError ? <p className="status">Loading page…</p> : null}
-        {noteError ? <p className="status error">{noteError}</p> : null}
-        {note ? <section className="prose">{note.document.content?.map(renderBlock)}</section> : null}
-      </article>}
+        {adminOpen && selectedNote ? <div className="view-switcher" aria-label="Page version">
+          <button className={adminView === 'draft' ? 'active' : ''} onClick={() => setAdminView('draft')}>Draft</button>
+          <button
+            className={adminView === 'published' ? 'active' : ''}
+            disabled={!selectedNote.publishedRevision}
+            onClick={() => {
+              setPublishedNote(null)
+              setPublishedNoteError(null)
+              setAdminView('published')
+            }}
+          >Published</button>
+        </div> : null}
+
+        {adminOpen && adminView === 'draft' && selectedNote ? <>
+          {draftNote ? <>
+            <textarea className="note-editor" aria-label="Note content" value={editorText} onChange={(event) => setEditorText(event.target.value)} />
+            <div className="draft-actions">
+              <button className="save-button" disabled={saving || !draftDirty} onClick={saveDraft}>{saving ? 'Saving…' : 'Save draft'}</button>
+              <button className="publish-button" disabled={publishing || saving || draftDirty} onClick={publish}>
+                {publishing ? 'Publishing…' : draftDirty ? 'Save before publishing' : selectedNote.status === 'published' ? 'Publish changes' : 'Publish page'}
+              </button>
+            </div>
+            <section className="prose preview">{textToDocument(editorText).content?.map(renderBlock)}</section>
+          </> : null}
+          {adminMessage ? <p className={adminMessage.includes('failed') || adminMessage.includes('unavailable') ? 'status error' : 'status'}>{adminMessage}</p> : null}
+        </> : null}
+
+        {showPublished && selectedNote && !selectedPublishedRevision ? <p className="status">This page has not been published yet.</p> : null}
+        {showPublished && selectedPublishedRevision && !publishedNote && !publishedNoteError ? <p className="status">Loading page…</p> : null}
+        {showPublished && publishedNoteError ? <p className="status error">{publishedNoteError}</p> : null}
+        {showPublished && publishedNote ? <section className="prose">{publishedNote.document.content?.map(renderBlock)}</section> : null}
+      </article>
     </main>
   )
 }
