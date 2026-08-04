@@ -73,6 +73,16 @@ export class InfraStack extends cdk.Stack {
 
     const contentBucket = new s3.Bucket(this, 'ContentBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      cors: [
+        {
+          allowedHeaders: ['*'],
+          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: [
+            'http://localhost:5173',
+            'https://lochlanodlum.github.io',
+          ],
+        },
+      ],
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
       lifecycleRules: [
@@ -97,6 +107,23 @@ export class InfraStack extends cdk.Stack {
       },
     );
 
+    const publishedContentCorsPolicy = new cloudfront.ResponseHeadersPolicy(
+      this,
+      'PublishedContentCorsPolicy',
+      {
+        corsBehavior: {
+          accessControlAllowCredentials: false,
+          accessControlAllowHeaders: ['*'],
+          accessControlAllowMethods: ['GET', 'HEAD', 'OPTIONS'],
+          accessControlAllowOrigins: [
+            'http://localhost:5173',
+            'https://lochlanodlum.github.io',
+          ],
+          originOverride: true,
+        },
+      },
+    );
+
     const publishedContentOrigin = cloudfrontOrigins.S3BucketOrigin.withOriginAccessControl(
       contentBucket,
       { originPath: '/published' },
@@ -110,8 +137,8 @@ export class InfraStack extends cdk.Stack {
           allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
           cachePolicy: publishedContentCachePolicy,
           origin: publishedContentOrigin,
-          responseHeadersPolicy:
-            cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+          responseHeadersPolicy: publishedContentCorsPolicy,
           viewerProtocolPolicy:
             cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         },
@@ -123,8 +150,8 @@ export class InfraStack extends cdk.Stack {
             allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
             cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
             origin: publishedContentOrigin,
-            responseHeadersPolicy:
-              cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
+            originRequestPolicy: cloudfront.OriginRequestPolicy.CORS_S3_ORIGIN,
+            responseHeadersPolicy: publishedContentCorsPolicy,
             viewerProtocolPolicy:
               cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           },

@@ -42,6 +42,16 @@ test('stores content privately and exposes only published content through CloudF
       IgnorePublicAcls: true,
       RestrictPublicBuckets: true,
     },
+    CorsConfiguration: {
+      CorsRules: [
+        Match.objectLike({
+          AllowedOrigins: [
+            'http://localhost:5173',
+            'https://lochlanodlum.github.io',
+          ],
+        }),
+      ],
+    },
     VersioningConfiguration: { Status: 'Enabled' },
   });
   template.resourceCountIs('AWS::CloudFront::Distribution', 1);
