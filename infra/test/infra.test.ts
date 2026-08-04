@@ -42,20 +42,23 @@ test('stores content privately and exposes only published content through CloudF
       IgnorePublicAcls: true,
       RestrictPublicBuckets: true,
     },
-    CorsConfiguration: {
-      CorsRules: [
-        Match.objectLike({
-          AllowedOrigins: [
-            'http://localhost:5173',
-            'https://lochlanodlum.github.io',
-          ],
-        }),
-      ],
-    },
     VersioningConfiguration: { Status: 'Enabled' },
   });
   template.resourceCountIs('AWS::CloudFront::Distribution', 1);
   template.resourceCountIs('AWS::CloudFront::OriginAccessControl', 1);
+  template.hasResourceProperties('AWS::CloudFront::ResponseHeadersPolicy', {
+    ResponseHeadersPolicyConfig: {
+      CorsConfig: Match.objectLike({
+        AccessControlAllowOrigins: {
+          Items: [
+            'http://localhost:5173',
+            'https://lochlanodlum.github.io',
+          ],
+        },
+        OriginOverride: true,
+      }),
+    },
+  });
   const distributions = template.findResources('AWS::CloudFront::Distribution');
   const distribution = Object.values(distributions)[0] as {
     Properties: { DistributionConfig: { CacheBehaviors?: Array<{ PathPattern: string }> } };
