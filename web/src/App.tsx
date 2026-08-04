@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const publishedBaseUrl = (
-  import.meta.env.VITE_PUBLISHED_CONTENT_URL ??
+  (import.meta.env.DEV ? '/content' : import.meta.env.VITE_PUBLISHED_CONTENT_URL) ??
   'https://d81ul6xa7pt91.cloudfront.net'
 ).replace(/\/$/, '')
 const adminBaseUrl = (
@@ -284,7 +284,12 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch(`${publishedBaseUrl}/tree.json`, { signal: controller.signal })
+    fetch(`${publishedBaseUrl}/tree.json`, {
+      // The manifest chooses the current immutable note revision. Never let a
+      // browser reuse an older manifest after a publish.
+      cache: 'no-store',
+      signal: controller.signal,
+    })
       .then(async (response) => {
         // A private S3 origin responds with 403 for a missing tree.json. Until
         // the first publish, that means the public site is simply empty.
