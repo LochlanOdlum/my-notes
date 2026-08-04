@@ -13,8 +13,11 @@ body { margin: 0; }
   display: grid;
   grid-template-columns: minmax(15rem, 22rem) minmax(0, 48rem);
   min-height: 100vh;
-  justify-content: center;
+  justify-content: start;
+  transition: grid-template-columns 180ms ease;
 }
+
+.site-shell.sidebar-collapsed { grid-template-columns: 4.5rem minmax(0, 48rem); }
 
 .sidebar {
   padding: 3rem 2rem;
@@ -22,9 +25,14 @@ body { margin: 0; }
   background: #fff;
 }
 
+.sidebar.collapsed { padding-inline: .65rem; }
+.sidebar-header { align-items: center; display: flex; gap: .75rem; justify-content: space-between; }
+.sidebar.collapsed .sidebar-header { justify-content: center; }
+.sidebar-content { margin-top: 2rem; }
 .brand { color: #0f172a; font-size: 1.25rem; font-weight: 750; text-decoration: none; }
-.admin-toggle, .secondary-button, .publish-button { border: 1px solid #bae6fd; border-radius: .45rem; background: #f0f9ff; color: #075985; cursor: pointer; font: inherit; padding: .5rem .7rem; }
-.admin-toggle { float: right; font-size: .85rem; }
+.admin-toggle, .secondary-button, .publish-button, .sidebar-toggle { border: 1px solid #bae6fd; border-radius: .45rem; background: #f0f9ff; color: #075985; cursor: pointer; font: inherit; padding: .5rem .7rem; }
+.admin-toggle { font-size: .85rem; }
+.sidebar-toggle { align-items: center; aspect-ratio: 1; display: inline-flex; font-size: 1.4rem; justify-content: center; line-height: 1; padding: .35rem; }
 .eyebrow { color: #64748b; font-size: .75rem; font-weight: 700; letter-spacing: .09em; margin: 2rem 0 .75rem; text-transform: uppercase; }
 .status { color: #64748b; line-height: 1.5; }
 .error { color: #b91c1c; }
@@ -72,6 +80,9 @@ nav { display: grid; gap: .3rem; }
 @media (max-width: 700px) {
   .site-shell { display: block; }
   .sidebar { border-bottom: 1px solid #e2e8f0; border-right: 0; padding: 1.5rem; }
+  .sidebar.collapsed { padding: .75rem 1rem; }
+  .sidebar.collapsed .sidebar-header { justify-content: flex-start; }
+  .sidebar-content { margin-top: 1.25rem; }
   .eyebrow { margin-top: 1.25rem; }
   nav { display: flex; overflow-x: auto; }
   .note-link { white-space: nowrap; }

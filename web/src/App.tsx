@@ -281,6 +281,7 @@ function App() {
   const [note, setNote] = useState<PublishedNote | null>(null)
   const [noteError, setNoteError] = useState<string | null>(null)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -348,27 +349,40 @@ function App() {
   }
 
   return (
-    <main className="site-shell">
-      <aside className="sidebar">
-        <a className="brand" href="#">
-          My Notes
-        </a>
-        <button className="admin-toggle" onClick={() => setAdminOpen(true)}>Admin</button>
-        <p className="eyebrow">Published pages</p>
-        {treeError ? <p className="status error">{treeError}</p> : null}
-        {!tree && !treeError ? <p className="status">Loading notes…</p> : null}
-        {tree && notes.length === 0 ? <p className="status">No notes have been published yet.</p> : null}
-        <nav aria-label="Published notes">
-          {notes.map((candidate) => (
-            <button
-              className={candidate.id === selectedNote?.id ? 'note-link active' : 'note-link'}
-              key={candidate.id}
-              onClick={() => selectNote(candidate)}
-            >
-              {candidate.title}
-            </button>
-          ))}
-        </nav>
+    <main className={sidebarOpen ? 'site-shell' : 'site-shell sidebar-collapsed'}>
+      <aside className={sidebarOpen ? 'sidebar' : 'sidebar collapsed'} id="notes-sidebar">
+        <div className="sidebar-header">
+          {sidebarOpen ? <a className="brand" href="#">My Notes</a> : null}
+          <button
+            aria-controls="notes-sidebar-content"
+            aria-expanded={sidebarOpen}
+            aria-label={sidebarOpen ? 'Hide notes panel' : 'Show notes panel'}
+            className="sidebar-toggle"
+            onClick={() => setSidebarOpen((open) => !open)}
+            title={sidebarOpen ? 'Hide notes panel' : 'Show notes panel'}
+            type="button"
+          >
+            <span aria-hidden="true">{sidebarOpen ? '‹' : '›'}</span>
+          </button>
+        </div>
+        <div className="sidebar-content" hidden={!sidebarOpen} id="notes-sidebar-content">
+          <button className="admin-toggle" onClick={() => setAdminOpen(true)}>Admin</button>
+          <p className="eyebrow">Published pages</p>
+          {treeError ? <p className="status error">{treeError}</p> : null}
+          {!tree && !treeError ? <p className="status">Loading notes…</p> : null}
+          {tree && notes.length === 0 ? <p className="status">No notes have been published yet.</p> : null}
+          <nav aria-label="Published notes">
+            {notes.map((candidate) => (
+              <button
+                className={candidate.id === selectedNote?.id ? 'note-link active' : 'note-link'}
+                key={candidate.id}
+                onClick={() => selectNote(candidate)}
+              >
+                {candidate.title}
+              </button>
+            ))}
+          </nav>
+        </div>
       </aside>
       {adminOpen ? <AdminPanel onClose={() => setAdminOpen(false)} /> : <article className="note-page">
         {!selectedNote && tree ? <h1>Choose a note</h1> : null}
